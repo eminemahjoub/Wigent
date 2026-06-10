@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Final
+from typing import Any, Final
 
 logger = logging.getLogger(__name__)
 
@@ -149,6 +149,70 @@ def build_mode_prompt(mode: str) -> str:
     return combine_prompts("base", mode, "tool_use", "safety")
 
 
+def build_system_prompt_with_context(
+    mode: str,
+    project_context: str = "",
+) -> str:
+    """Build a system prompt with optional project context injected.
+
+    The prompt composition is:
+        base.md
+        + PROJECT CONTEXT (if provided — injected after base)
+        + <mode>.md
+        + tool_use.md
+        + safety.md
+
+    Args:
+        mode: Agent mode name.
+        project_context: Injected project context string (from ProjectContext).
+
+    Returns:
+        Complete system prompt string with project context embedded.
+    """
+    mode = mode.lower()
+    if mode not in _AVAILABLE_PROMPTS:
+        raise ValueError(
+            f"Unknown mode '{mode}'. "
+            f"Available modes: {', '.join(sorted(_AVAILABLE_PROMPTS))}"
+        )
+
+    parts: list[str] = []
+    seen: set[str] = set()
+
+    base = load_prompt("base")
+    parts.append(base)
+    seen.add("base")
+
+    if project_context.strip():
+        parts.append(project_context)
+
+    for name in (mode, "tool_use", "safety"):
+        if name in seen:
+            continue
+        seen.add(name)
+        content = load_prompt(name)
+        parts.append(content)
+
+    return "\n\n---\n\n".join(parts)
+
+
+def get_workspace_aware_prompt(agent: Any, mode: str) -> str:
+    """Build a full prompt with current workspace context from an agent.
+
+    Args:
+        agent: A WigentAgent instance with ``project_context`` and
+               ``get_project_aware_prompt()``.
+        mode: Agent mode name.
+
+    Returns:
+        Full prompt string with project context injected.
+    """
+    try:
+        return agent.get_project_aware_prompt(mode)
+    except AttributeError:
+        return build_mode_prompt(mode)
+
+
 __all__ = [
     "load_prompt",
     "combine_prompts",
@@ -156,4 +220,6 @@ __all__ = [
     "clear_cache",
     "prompt_stats",
     "build_mode_prompt",
+    "build_system_prompt_with_context",
+    "get_workspace_aware_prompt",
 ]
