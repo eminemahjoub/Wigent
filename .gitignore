@@ -1,1 +1,108 @@
+# ── Python ──────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+*.whl
+*.so
+*.dll
+*.dylib
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ── Virtual environments ────────────────────────────────────────────────
 venv/
+.venv/
+env/
+.env/
+virtualenv/
+
+# ── Environment / secrets ───────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.crt
+*.cert
+
+# ── IDE / Editor ────────────────────────────────────────────────────────
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+*~
+.vs/
+*.sublime-project
+*.sublime-workspace
+.project
+.pydevproject
+.netbeans/
+nbproject/
+
+# ── OS files ────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*.lnk
+*.dmg
+
+# ── AI / ML artifacts ───────────────────────────────────────────────────
+*.pt
+*.pth
+*.bin
+*.onnx
+*.gguf
+*.ggml
+*.h5
+*.keras
+*.tflite
+*.pb
+*.safetensors
+checkpoints/
+runs/
+wandb/
+mlruns/
+lightning_logs/
+
+# ── Testing / Coverage ──────────────────────────────────────────────────
+.coverage
+coverage/
+.coverage.*
+coverage.xml
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+
+# ── Logs / Temp ─────────────────────────────────────────────────────────
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
+.DS_Store
+logs/
+tmp/
+
+# ── Documentation builds ────────────────────────────────────────────────
+site/
+_build/
+.docusaurus/
+
+# ── Docker ──────────────────────────────────────────────────────────────
+.dockerignore
+*.dockerfile
+
+# ── Project-specific ────────────────────────────────────────────────────
+agent_workspace/
