@@ -85,8 +85,8 @@ class TestContextManager:
     def test_token_budget_exceeded(self):
         cm = ContextManager(max_tokens=1000)
         with pytest.raises(TokenBudgetExceeded):
-            for _ in range(250):
-                cm.add_message("user", "x" * 20)
+            # Add one large message that immediately exceeds hard stop (95%).
+            cm.add_message("user", "x" * 4000)
 
 
 # ── 2. SessionManager ──────────────────────────────────────────────────
