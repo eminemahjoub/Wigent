@@ -125,6 +125,7 @@ def test_detects_unknown_project(tmp_path: Path):
 
 def test_get_tech_stack(tmp_path: Path):
     (tmp_path / "package.json").write_text('{"name":"x","dependencies":{"react":"18"}}')
+    (tmp_path / "tsconfig.json").touch()
     detector = WorkspaceDetector()
     stack = detector.get_tech_stack(tmp_path)
     assert stack["type"] == "react"
