@@ -469,12 +469,117 @@ TOOL_SCHEMAS: Final[list[dict]] = [
             },
         },
     },
-    # ── shell ───────────────────────────────────────────────────────────
+    # ── bash_executor ──────────────────────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "execute_command",
+            "description": "Execute a shell command safely (no shell=True). Uses shlex.split() for parsing, mandatory 30s timeout, and sandbox classification. Blocked commands are rejected immediately.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "Shell command string to execute (e.g. 'ls -la').",
+                    },
+                    "cwd": {
+                        "type": "string",
+                        "description": "Working directory (default: workspace root).",
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Maximum execution time in seconds (default 30, max 120).",
+                    },
+                },
+                "required": ["command"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "execute_script",
+            "description": "Write content to a temp file and execute it. Use this for multi-line scripts or when pipes/redirects are needed. Requires approval.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "script_content": {
+                        "type": "string",
+                        "description": "Shell script content to execute.",
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Maximum execution time in seconds (default 30).",
+                    },
+                },
+                "required": ["script_content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_python",
+            "description": "Execute Python code in an isolated subprocess. Writes code to a temp .py file and runs with python3.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "description": "Python source code to execute.",
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Maximum execution time in seconds (default 30).",
+                    },
+                },
+                "required": ["code"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_command_preview",
+            "description": "Preview a command without executing it. Shows parsed arguments and classification (blocked/warn/safe).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "Shell command string to preview.",
+                    },
+                },
+                "required": ["command"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "kill_process",
+            "description": "Terminate a running process by PID. Sends SIGKILL by default.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pid": {
+                        "type": "integer",
+                        "description": "Process ID to terminate.",
+                    },
+                    "force": {
+                        "type": "boolean",
+                        "description": "If true sends SIGKILL, otherwise SIGTERM (default true).",
+                    },
+                },
+                "required": ["pid"],
+            },
+        },
+    },
     {
         "type": "function",
         "function": {
             "name": "run_command",
-            "description": "Execute a shell command inside the workspace directory with a 30-second timeout. Returns combined stdout and stderr.",
+            "description": "[DEPRECATED] Use execute_command instead. Execute a shell command with 30s timeout.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -484,6 +589,249 @@ TOOL_SCHEMAS: Final[list[dict]] = [
                     },
                 },
                 "required": ["command"],
+            },
+        },
+    },
+    # ── code_search ──────────────────────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "search_codebase",
+            "description": "Full-text search across the codebase using ripgrep (Python fallback). Returns ranked matches with file/line/column and context. Skips binaries and respects .gitignore.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Literal string to search for.",
+                    },
+                    "root_path": {
+                        "type": "string",
+                        "description": "Directory to search in (default workspace root).",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_by_pattern",
+            "description": "Regex search across the codebase. Returns matches with file/line/column and surrounding context.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "Python regex pattern to search for.",
+                    },
+                    "root_path": {
+                        "type": "string",
+                        "description": "Directory to search in (default workspace root).",
+                    },
+                },
+                "required": ["pattern"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "find_definition",
+            "description": "Find the definition of a symbol (function, class, variable) across the codebase. Uses Python AST for Python files, regex fallback for others.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "symbol": {
+                        "type": "string",
+                        "description": "Symbol name to find (exact match).",
+                    },
+                    "root_path": {
+                        "type": "string",
+                        "description": "Directory to search in (default workspace root).",
+                    },
+                },
+                "required": ["symbol"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "find_references",
+            "description": "Find all usages of a symbol, excluding its definition line. Uses ripgrep for fast full-codebase search.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "symbol": {
+                        "type": "string",
+                        "description": "Symbol name to find references for.",
+                    },
+                    "root_path": {
+                        "type": "string",
+                        "description": "Directory to search in (default workspace root).",
+                    },
+                },
+                "required": ["symbol"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_file_symbols",
+            "description": "List all functions, classes, methods, and variables defined in a single file. Uses AST for Python files.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Relative or absolute path to the file.",
+                    },
+                },
+                "required": ["file_path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_imports_graph",
+            "description": "Build a full import dependency graph for the project. Returns nodes, directed edges, orphan modules, and hub modules (most imported).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "root_path": {
+                        "type": "string",
+                        "description": "Project root directory (default workspace root).",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "find_similar_code",
+            "description": "Find code blocks similar to a given snippet using token-frequency ranking. Results sorted by Jaccard similarity score.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "snippet": {
+                        "type": "string",
+                        "description": "Code snippet text to match against the codebase.",
+                    },
+                    "root_path": {
+                        "type": "string",
+                        "description": "Directory to search in (default workspace root).",
+                    },
+                },
+                "required": ["snippet"],
+            },
+        },
+    },
+    # ── ast_analyzer ─────────────────────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "parse_file",
+            "description": "Parse a Python file via AST and return full analysis: functions, classes, imports, complexity, docstrings, and line counts.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Relative or absolute path to a Python file.",
+                    },
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_functions",
+            "description": "Return all function definitions in a Python file, with args, decorators, complexity, and docstrings.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Relative or absolute path to a Python file.",
+                    },
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_classes",
+            "description": "Return all class definitions in a Python file, with methods, bases, decorators, and docstrings.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Relative or absolute path to a Python file.",
+                    },
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_imports",
+            "description": "Return all import statements from a Python file, distinguishing direct vs from imports.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Relative or absolute path to a Python file.",
+                    },
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_complexity",
+            "description": "Compute cyclomatic complexity for every function in a Python file. Results sorted by complexity descending.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Relative or absolute path to a Python file.",
+                    },
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_docstrings",
+            "description": "Extract all docstrings from a Python file — module, class, function, and method docstrings with parent context.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Relative or absolute path to a Python file.",
+                    },
+                },
+                "required": ["path"],
             },
         },
     },

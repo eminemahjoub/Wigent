@@ -12,7 +12,9 @@ Sub-modules:
     file_writer   — write, create, append, edit_file_lines, apply_diff, backup, restore
     file_lister   — list_directory, get_project_structure, list_files, find_files, get_recent_files
     file_search   — search_in_files, search_by_regex, find_function, find_imports, search_and_replace
-    shell         — run_command
+    bash_executor — execute_command, execute_script, run_python, get_command_preview, kill_process, run_command
+    code_search   — search_codebase, search_by_pattern, find_definition, find_references, get_file_symbols, get_imports_graph, find_similar_code
+    ast_analyzer  — parse_file, get_functions, get_classes, get_imports, get_complexity, get_docstrings
     tool_schemas  — TOOL_SCHEMAS list for OpenAI function‑calling API
 """
 
@@ -54,8 +56,36 @@ from wigent.tools.file_search import (
     search_and_replace,
 )
 
-# ── shell ────────────────────────────────────────────────────────────────
-from wigent.tools.shell import run_command
+# ── bash_executor ────────────────────────────────────────────────────────
+from wigent.tools.bash_executor import (
+    execute_command,
+    execute_script,
+    run_python,
+    get_command_preview,
+    kill_process,
+    run_command,
+)
+
+# ── code_search ──────────────────────────────────────────────────────────
+from wigent.tools.code_search import (
+    search_codebase,
+    search_by_pattern,
+    find_definition,
+    find_references,
+    get_file_symbols,
+    get_imports_graph,
+    find_similar_code,
+)
+
+# ── ast_analyzer ─────────────────────────────────────────────────────────
+from wigent.tools.ast_analyzer import (
+    parse_file,
+    get_functions,
+    get_classes,
+    get_imports,
+    get_complexity,
+    get_docstrings,
+)
 
 # ── schemas ──────────────────────────────────────────────────────────────
 from wigent.tools.tool_schemas import TOOL_SCHEMAS
@@ -87,8 +117,28 @@ __all__ = [
     "find_function",
     "find_imports",
     "search_and_replace",
-    # shell
+    # bash_executor
+    "execute_command",
+    "execute_script",
+    "run_python",
+    "get_command_preview",
+    "kill_process",
     "run_command",
+    # code_search
+    "search_codebase",
+    "search_by_pattern",
+    "find_definition",
+    "find_references",
+    "get_file_symbols",
+    "get_imports_graph",
+    "find_similar_code",
+    # ast_analyzer
+    "parse_file",
+    "get_functions",
+    "get_classes",
+    "get_imports",
+    "get_complexity",
+    "get_docstrings",
     # schemas
     "TOOL_SCHEMAS",
 ]
