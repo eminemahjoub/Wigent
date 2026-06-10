@@ -20,7 +20,10 @@ import re
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Final
+
+from wigent.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -330,6 +333,76 @@ def format_approval_request(
     return "\n".join(lines)
 
 
+@dataclass
+class SafetyResult:
+    level: str = "SAFE"
+    reason: str = ""
+    suggestion: str | None = None
+
+
+class Sandbox:
+    def __init__(self, workspace_root: str | None = None) -> None:
+        self._workspace_root = os.path.abspath(
+            workspace_root or settings.WORKSPACE_DIR
+        )
+
+    def is_path_safe(self, path: str) -> bool:
+        resolved = os.path.abspath(os.path.normpath(
+            os.path.join(self._workspace_root, path)
+        ))
+        return resolved.startswith(self._workspace_root)
+
+    def sanitize_path(self, path: str) -> str:
+        resolved = os.path.abspath(os.path.normpath(
+            os.path.join(self._workspace_root, path)
+        ))
+        if resolved.startswith(self._workspace_root):
+            return resolved
+        msg = f"Path '{path}' escapes workspace (resolved: {resolved})"
+        logger.warning(msg)
+        raise PermissionError(msg)
+
+    def enforce_boundary(self, path: str) -> str:
+        error = validate_sandbox_path(path, self._workspace_root)
+        if error:
+            raise PermissionError(error)
+        return os.path.abspath(os.path.normpath(
+            os.path.join(self._workspace_root, path)
+        ))
+
+    def is_command_safe(self, command: str) -> SafetyResult:
+        classification = classify_command(command)
+        if classification.category == CommandCategory.BLOCKED:
+            return SafetyResult(
+                level="BLOCKED",
+                reason=classification.reason,
+                suggestion="This command is never allowed. Use a safer alternative.",
+            )
+        if classification.category == CommandCategory.WARN:
+            return SafetyResult(
+                level="WARN",
+                reason=classification.reason,
+                suggestion="This command requires approval before execution.",
+            )
+        return SafetyResult(level="SAFE", reason="", suggestion=None)
+
+    def sanitize_command(self, command: str) -> str | None:
+        classification = classify_command(command)
+        if classification.category == CommandCategory.BLOCKED:
+            logger.warning("Blocked command rejected: %s", command[:120])
+            return None
+        return command
+
+    def get_workspace_root(self) -> str:
+        return self._workspace_root
+
+    def get_blocked_reason(self, command: str) -> str | None:
+        classification = classify_command(command)
+        if classification.category == CommandCategory.BLOCKED:
+            return classification.reason
+        return None
+
+
 __all__ = [
     "CommandCategory",
     "Classification",
@@ -340,4 +413,6 @@ __all__ = [
     "BLOCKED_PATTERNS",
     "WARN_PATTERNS",
     "SAFE_PREFIXES",
+    "SafetyResult",
+    "Sandbox",
 ]
