@@ -1,3 +1,3 @@
-from wigent.cli.app import main
+from wigent.cli import main
 
 main()

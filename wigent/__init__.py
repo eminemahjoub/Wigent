@@ -18,8 +18,14 @@ Sub-packages:
     config    — Settings and configuration
 """
 
-from wigent.core import run_agent
 from wigent.config import settings
 
+
+def run_agent(user_prompt: str, **kwargs: str) -> str:
+    """Lazily import and run the agent to avoid triggering model chain at import time."""
+    from wigent.core.agent import run_agent as _run
+    return _run(user_prompt, **kwargs)
+
+
 __all__ = ["run_agent", "settings"]
-__version__ = "0.1.0"
+__version__ = "0.5.5"

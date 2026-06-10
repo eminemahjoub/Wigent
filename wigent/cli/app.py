@@ -12,7 +12,7 @@ from rich.table import Table
 from rich.text import Text
 
 from wigent.config import settings
-from wigent.core.agent import WigentAgent
+
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -118,7 +118,7 @@ def display_workspace_banner(info: dict[str, Any]) -> None:
     console.print(Panel(grid, title="📁 Workspace Loaded", border_style="bright_blue"))
 
 
-def run_interactive(agent: WigentAgent) -> None:
+def run_interactive(agent: Any) -> None:
     console.print("[bold green]✅ Agent ready. Enter your task (or /help for commands).[/bold green]")
     console.print()
     while True:
@@ -144,7 +144,7 @@ def run_interactive(agent: WigentAgent) -> None:
                 console.print(f"[red]Error: {exc}[/red]")
 
 
-def _handle_command(agent: WigentAgent, cmd: str) -> None:
+def _handle_command(agent: Any, cmd: str) -> None:
     cmd = cmd.lower().strip()
     if cmd == "/help":
         console.print("[bold]Commands:[/bold]")
@@ -184,6 +184,8 @@ def main(argv: list[str] | None = None) -> NoReturn:
     if args.yes:
         os.environ["AUTO_APPROVE"] = "true"
 
+    from wigent.core.agent import WigentAgent
+
     agent = WigentAgent(
         mode=args.mode,
         provider=args.provider,
@@ -209,5 +211,8 @@ def main(argv: list[str] | None = None) -> NoReturn:
     run_interactive(agent)
     sys.exit(0)
 
+
+if __name__ == "__main__":
+    main()
 
 __all__ = ["main"]
