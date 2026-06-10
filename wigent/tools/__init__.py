@@ -25,6 +25,7 @@ from wigent.tools.file_reader import (
     read_multiple_files,
     get_file_info,
     detect_encoding,
+    get_file_summary,
 )
 
 # ── file_writer ──────────────────────────────────────────────────────────
@@ -87,6 +88,26 @@ from wigent.tools.ast_analyzer import (
     get_docstrings,
 )
 
+# ── git_tool ─────────────────────────────────────────────────────────────
+from wigent.tools.git_tool import (
+    check_is_git_repo,
+    get_repo_root,
+    get_status,
+    get_diff,
+    get_log,
+    get_current_branch,
+    list_branches,
+    stage_files,
+    unstage_files,
+    commit,
+    create_branch,
+    get_blame,
+    get_file_history,
+    stash_changes,
+    pop_stash,
+    list_stashes,
+)
+
 # ── schemas ──────────────────────────────────────────────────────────────
 from wigent.tools.tool_schemas import TOOL_SCHEMAS
 
@@ -141,4 +162,23 @@ __all__ = [
     "get_docstrings",
     # schemas
     "TOOL_SCHEMAS",
+    # file_reader
+    "get_file_summary",
+    # git_tool
+    "check_is_git_repo",
+    "get_repo_root",
+    "get_status",
+    "get_diff",
+    "get_log",
+    "get_current_branch",
+    "list_branches",
+    "stage_files",
+    "unstage_files",
+    "commit",
+    "create_branch",
+    "get_blame",
+    "get_file_history",
+    "stash_changes",
+    "pop_stash",
+    "list_stashes",
 ]

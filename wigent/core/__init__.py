@@ -24,6 +24,9 @@ Sub-modules
 from wigent.core.agent import Agent, WigentAgent, run_agent
 from wigent.core.loop import AgentLoop, AgentState, initial_state
 from wigent.core.orchestrator import Orchestrator
+from wigent.core.planner import ArchitectAgent
+from wigent.core.executor import CoderAgent
+from wigent.core.debugger import DebuggerAgent
 
 __all__ = [
     "WigentAgent",
@@ -33,4 +36,7 @@ __all__ = [
     "AgentState",
     "initial_state",
     "Orchestrator",
+    "ArchitectAgent",
+    "CoderAgent",
+    "DebuggerAgent",
 ]

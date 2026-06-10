@@ -138,17 +138,22 @@ def _get_tool_registry() -> dict[str, Callable[..., Any]]:
     if _TOOL_REGISTRY is not None:
         return _TOOL_REGISTRY
     from wigent.tools import (
-        apply_diff, append_to_file, backup_file, create_file,
-        detect_encoding, edit_file_lines, execute_command, execute_script,
+        apply_diff, append_to_file, backup_file, check_is_git_repo,
+        commit, create_branch, create_file, detect_encoding,
+        edit_file_lines, execute_command, execute_script,
         find_definition, find_files, find_function, find_imports,
         find_references, find_similar_code,
-        get_classes, get_command_preview, get_complexity, get_docstrings,
-        get_file_info, get_file_symbols, get_functions, get_imports,
-        get_imports_graph, get_project_structure, get_recent_files,
-        kill_process, list_directory, list_files, parse_file,
-        read_file, read_file_lines, read_multiple_files, restore_backup,
-        run_command, run_python, search_and_replace, search_by_pattern,
-        search_codebase, search_in_files, search_by_regex,
+        get_blame, get_classes, get_command_preview, get_complexity,
+        get_current_branch, get_diff, get_docstrings,
+        get_file_history, get_file_info, get_file_summary,
+        get_file_symbols, get_functions, get_imports, get_imports_graph,
+        get_log, get_project_structure, get_recent_files, get_repo_root,
+        get_status, kill_process, list_branches, list_directory, list_files,
+        list_stashes, parse_file, pop_stash, read_file, read_file_lines,
+        read_multiple_files, restore_backup, run_command, run_python,
+        search_and_replace, search_by_pattern, search_codebase,
+        search_in_files, search_by_regex, stage_files, stash_changes,
+        unstage_files, write_file,
     )
     _TOOL_REGISTRY = {
         "read_file": read_file,
@@ -156,6 +161,7 @@ def _get_tool_registry() -> dict[str, Callable[..., Any]]:
         "read_multiple_files": read_multiple_files,
         "get_file_info": get_file_info,
         "detect_encoding": detect_encoding,
+        "get_file_summary": get_file_summary,
         "write_file": write_file,
         "create_file": create_file,
         "append_to_file": append_to_file,
@@ -192,6 +198,23 @@ def _get_tool_registry() -> dict[str, Callable[..., Any]]:
         "get_imports": get_imports,
         "get_complexity": get_complexity,
         "get_docstrings": get_docstrings,
+        # git_tool
+        "check_is_git_repo": check_is_git_repo,
+        "get_repo_root": get_repo_root,
+        "get_status": get_status,
+        "get_diff": get_diff,
+        "get_log": get_log,
+        "get_current_branch": get_current_branch,
+        "list_branches": list_branches,
+        "stage_files": stage_files,
+        "unstage_files": unstage_files,
+        "commit": commit,
+        "create_branch": create_branch,
+        "get_blame": get_blame,
+        "get_file_history": get_file_history,
+        "stash_changes": stash_changes,
+        "pop_stash": pop_stash,
+        "list_stashes": list_stashes,
     }
     return _TOOL_REGISTRY
 

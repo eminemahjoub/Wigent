@@ -36,27 +36,38 @@ class AgentModeConfig:
 
 # ── tool sets ────────────────────────────────────────────────────────────
 
+_GIT_READ_TOOLS: tuple[str, ...] = (
+    "check_is_git_repo", "get_repo_root", "get_status", "get_diff",
+    "get_log", "get_current_branch", "list_branches", "get_blame",
+    "get_file_history", "list_stashes",
+)
+
+_GIT_WRITE_TOOLS: tuple[str, ...] = (
+    "stage_files", "unstage_files", "commit", "create_branch",
+    "stash_changes", "pop_stash",
+)
+
 _ALL_TOOLS: tuple[str, ...] = (
     "write_file", "read_file", "list_files", "get_file_summary",
     "run_command", "search_codebase",
-)
+) + _GIT_READ_TOOLS + _GIT_WRITE_TOOLS
 
 _PLANNING_TOOLS: tuple[str, ...] = (
     "read_file", "list_files", "search_codebase", "get_file_summary",
-)
+) + _GIT_READ_TOOLS
 
 _CODING_TOOLS: tuple[str, ...] = (
     "write_file", "read_file", "list_files", "get_file_summary",
     "run_command",
-)
+) + _GIT_READ_TOOLS + _GIT_WRITE_TOOLS
 
 _DEBUG_TOOLS: tuple[str, ...] = (
     "read_file", "run_command", "search_codebase", "get_file_summary",
-)
+) + _GIT_READ_TOOLS + _GIT_WRITE_TOOLS
 
 _REVIEW_TOOLS: tuple[str, ...] = (
     "read_file", "list_files", "search_codebase", "get_file_summary",
-)
+) + _GIT_READ_TOOLS
 
 
 # ── mode registry ───────────────────────────────────────────────────────

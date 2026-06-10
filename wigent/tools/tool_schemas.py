@@ -27,6 +27,27 @@ TOOL_SCHEMAS: Final[list[dict]] = [
     {
         "type": "function",
         "function": {
+            "name": "get_file_summary",
+            "description": "Return a lightweight summary of a file: size, line count, language, last modified time, and the first N characters of content. Use this instead of read_file when you only need a preview — saves tokens.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Relative or absolute path inside the workspace.",
+                    },
+                    "max_chars": {
+                        "type": "integer",
+                        "description": "Maximum characters to include in the summary (default 2000).",
+                    },
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "read_file",
             "description": "Read the full content of a file inside the workspace. Returns content, encoding, line count, and size.",
             "parameters": {
@@ -832,6 +853,349 @@ TOOL_SCHEMAS: Final[list[dict]] = [
                     },
                 },
                 "required": ["path"],
+            },
+        },
+    },
+# ---- git_tool ----------------------------------------------------------
+    {
+        "type": "function",
+        "function": {
+            "name": "check_is_git_repo",
+            "description": "Check whether a directory is inside a git repository (searches parent directories).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Directory path to check (default workspace root).",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_repo_root",
+            "description": "Find the root directory of the git repository containing the given path.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Directory path inside the repo (default workspace root).",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_status",
+            "description": "Return the working tree status with staged/unstaged entries, branch name, and ahead/behind counts.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Directory inside the workspace (default workspace root).",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_diff",
+            "description": "Return a structured diff of staged or unstaged changes. Includes hunks, insertions/deletions counts, and raw unified diff string.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Directory inside the workspace (default workspace root).",
+                    },
+                    "staged": {
+                        "type": "boolean",
+                        "description": "If True, diff staged changes vs HEAD. If False, diff unstaged working tree changes (default false).",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_log",
+            "description": "Return the recent commit history with author, timestamp, message, and changed files count.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Directory inside the workspace (default workspace root).",
+                    },
+                    "n": {
+                        "type": "integer",
+                        "description": "Maximum number of commits to return (default 10, max 500).",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_current_branch",
+            "description": "Return the name of the currently active branch with its latest commit SHA.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Directory inside the workspace (default workspace root).",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_branches",
+            "description": "List all local (and optionally remote) branches with current branch indicator and commit SHA.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Directory inside the workspace (default workspace root).",
+                    },
+                    "include_remote": {
+                        "type": "boolean",
+                        "description": "Include remote-tracking branches (default false).",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "stage_files",
+            "description": "Stage files (git add) for the next commit. If no file_patterns given, stages all changes.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Directory inside the workspace (default workspace root).",
+                    },
+                    "file_patterns": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of file paths or glob patterns to stage. Omit to stage all.",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "unstage_files",
+            "description": "Unstage files (git restore --staged). If no file_patterns given, unstages everything.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Directory inside the workspace (default workspace root).",
+                    },
+                    "file_patterns": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of file paths to unstage. Omit to unstage all.",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "commit",
+            "description": "Create a git commit. NEVER commits without approved=True. When approved=False, returns a preview of staged changes. Pass approved=True only after user confirmation.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Directory inside the workspace (default workspace root).",
+                    },
+                    "message": {
+                        "type": "string",
+                        "description": "Commit message.",
+                    },
+                    "approved": {
+                        "type": "boolean",
+                        "description": "MUST be True to actually commit. Default False (returns preview only).",
+                    },
+                    "author_name": {
+                        "type": "string",
+                        "description": "Override author name (optional).",
+                    },
+                    "author_email": {
+                        "type": "string",
+                        "description": "Override author email (optional).",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_branch",
+            "description": "Create and switch to a new branch. Optionally specify a base branch or commit to fork from.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Directory inside the workspace (default workspace root).",
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Name for the new branch.",
+                    },
+                    "base_branch": {
+                        "type": "string",
+                        "description": "Branch or commit to fork from (default: current HEAD).",
+                    },
+                },
+                "required": ["name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_blame",
+            "description": "Get blame/annotate information for a file. Optionally filter to a specific line number.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Directory inside the workspace (default workspace root).",
+                    },
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the file to blame (relative to repo root).",
+                    },
+                    "line": {
+                        "type": "integer",
+                        "description": "If set, only return blame for this specific line (1-indexed).",
+                    },
+                },
+                "required": ["file_path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_file_history",
+            "description": "Return the commit history for a single file — who changed what and when.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Directory inside the workspace (default workspace root).",
+                    },
+                    "file_path": {
+                        "type": "string",
+                        "description": "File path relative to repo root.",
+                    },
+                },
+                "required": ["file_path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "stash_changes",
+            "description": "Stash working directory changes. Optionally include untracked files and a stash message.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Directory inside the workspace (default workspace root).",
+                    },
+                    "message": {
+                        "type": "string",
+                        "description": "Optional stash message.",
+                    },
+                    "include_untracked": {
+                        "type": "boolean",
+                        "description": "Also stash untracked files (git stash -u) (default false).",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "pop_stash",
+            "description": "Pop (apply and drop) a stash entry by index (0 = most recent).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Directory inside the workspace (default workspace root).",
+                    },
+                    "index": {
+                        "type": "integer",
+                        "description": "Stash index to pop (0 = most recent, default 0).",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_stashes",
+            "description": "List all stash entries with index, message, and commit SHA.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Directory inside the workspace (default workspace root).",
+                    },
+                },
+                "required": [],
             },
         },
     },

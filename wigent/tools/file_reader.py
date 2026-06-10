@@ -222,6 +222,93 @@ def read_file_lines(path: str, start: int = 1, end: int | None = None) -> dict[s
     }
 
 
+def get_file_summary(path: str, max_chars: int = 2000) -> dict[str, Any]:
+    """Return a lightweight summary of a file — useful for previewing
+    large files without consuming tokens on the full content.
+
+    Args:
+        path: Relative or absolute path inside the workspace.
+        max_chars: Maximum characters to include in the summary
+                   (default 2000).
+
+    Returns:
+        A dict with keys: ``file``, ``size``, ``lines``, ``language``,
+        ``last_modified``, ``summary``.
+    """
+    info = get_file_info(path)
+
+    if not info.get("exists"):
+        return {
+            "file": path,
+            "size": 0,
+            "lines": 0,
+            "language": "",
+            "last_modified": "",
+            "summary": "",
+            "error": "File does not exist",
+        }
+
+    language_map: dict[str, str] = {
+        ".py": "Python",
+        ".js": "JavaScript",
+        ".ts": "TypeScript",
+        ".tsx": "TypeScript React",
+        ".jsx": "JavaScript React",
+        ".go": "Go",
+        ".rs": "Rust",
+        ".rb": "Ruby",
+        ".java": "Java",
+        ".kt": "Kotlin",
+        ".swift": "Swift",
+        ".c": "C",
+        ".h": "C Header",
+        ".cpp": "C++",
+        ".hpp": "C++ Header",
+        ".cs": "C#",
+        ".php": "PHP",
+        ".sh": "Shell",
+        ".bash": "Shell",
+        ".zsh": "Shell",
+        ".sql": "SQL",
+        ".html": "HTML",
+        ".css": "CSS",
+        ".scss": "SCSS",
+        ".json": "JSON",
+        ".xml": "XML",
+        ".yaml": "YAML",
+        ".yml": "YAML",
+        ".toml": "TOML",
+        ".md": "Markdown",
+        ".rst": "reStructuredText",
+        ".txt": "Text",
+        ".env": "Dotenv",
+    }
+    ext = os.path.splitext(path)[1].lower()
+    language = language_map.get(ext, "")
+
+    summary = ""
+    line_count = 0
+    if info.get("is_file") and info.get("size_bytes", 0) > 0:
+        resolved, _ = resolve_path(path)
+        encoding = detect_encoding(resolved)
+        try:
+            with open(resolved, "r", encoding=encoding) as f:
+                first_chars = f.read(max_chars)
+            line_count = first_chars.count("\n") + (1 if first_chars and not first_chars.endswith("\n") else 0)
+            summary = first_chars[:max_chars]
+        except (OSError, UnicodeDecodeError):
+            pass
+
+    return {
+        "file": path,
+        "size": info.get("size_bytes", 0),
+        "lines": line_count,
+        "language": language,
+        "last_modified": info.get("modified_iso", ""),
+        "summary": summary,
+    }
+
+
 def read_multiple_files(paths: list[str]) -> dict[str, dict[str, Any]]:
     """Batch‑read multiple files in a single call.
 
@@ -253,4 +340,5 @@ __all__ = [
     "read_multiple_files",
     "get_file_info",
     "detect_encoding",
+    "get_file_summary",
 ]
