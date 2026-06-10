@@ -66,7 +66,7 @@ ORCHESTRATOR: Final[AgentModeConfig] = AgentModeConfig(
     description="Full‑autonomy mode — analyses, codes, tests, and iterates until the task is complete",
     emoji="🧠",
     allowed_tools=_ALL_TOOLS,
-    system_prompt_file="orchestrator.txt",
+    system_prompt_file="orchestrator.md",
     temperature=0.7,
     max_iterations=50,
 )
@@ -76,7 +76,7 @@ ARCHITECT: Final[AgentModeConfig] = AgentModeConfig(
     description="Planning‑only mode — reads the codebase, designs architecture, produces a plan without writing code",
     emoji="🏛️",
     allowed_tools=_PLANNING_TOOLS,
-    system_prompt_file="architect.txt",
+    system_prompt_file="architect.md",
     temperature=0.5,
     max_iterations=30,
 )
@@ -86,7 +86,7 @@ CODER: Final[AgentModeConfig] = AgentModeConfig(
     description="Implementation mode — writes code, runs tests, fixes compilation errors. No architectural decisions",
     emoji="💻",
     allowed_tools=_CODING_TOOLS,
-    system_prompt_file="coder.txt",
+    system_prompt_file="coder.md",
     temperature=0.6,
     max_iterations=40,
 )
@@ -96,7 +96,7 @@ DEBUGGER: Final[AgentModeConfig] = AgentModeConfig(
     description="Bug‑fixing mode — reads error output, identifies root cause, applies targeted fixes",
     emoji="🔍",
     allowed_tools=_DEBUG_TOOLS,
-    system_prompt_file="debugger.txt",
+    system_prompt_file="debugger.md",
     temperature=0.3,
     max_iterations=30,
 )
@@ -106,7 +106,7 @@ REVIEWER: Final[AgentModeConfig] = AgentModeConfig(
     description="Code‑review mode — reads files, identifies issues, suggests improvements, writes no code",
     emoji="👁️",
     allowed_tools=_REVIEW_TOOLS,
-    system_prompt_file="reviewer.txt",
+    system_prompt_file="reviewer.md",
     temperature=0.4,
     max_iterations=20,
 )
