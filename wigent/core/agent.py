@@ -40,6 +40,7 @@ from wigent.config import settings
 from wigent.config.modes import MODES, get_mode
 from wigent.core.loop import AgentLoop, AgentState
 from wigent.core.orchestrator import Orchestrator
+from wigent.memory import MemorySystem
 from wigent.models.model_factory import factory as model_factory
 
 logger = logging.getLogger(__name__)
@@ -76,6 +77,9 @@ class WigentAgent:
         self._loop: AgentLoop | None = None
         self._orchestrator: Orchestrator = Orchestrator()
         self._project_context: dict[str, Any] = {}
+        self._memory: MemorySystem = MemorySystem()
+        self._memory.initialize()
+        self._current_session_id: str | None = None
 
         logger.info(
             "WigentAgent initialized  mode=%s  provider=%s  model=%s",
@@ -113,6 +117,21 @@ class WigentAgent:
             task[:80], resolved_mode, self._provider, self._model_name,
         )
 
+        # Create a session and inject into context.
+        session = self._memory.sessions.create_session(
+            name=None,
+            description=f"{resolved_mode}: {task[:80]}",
+            tags=[resolved_mode],
+        )
+        self._current_session_id = session.session_id
+        self._memory.context.add_message("user", task)
+
+        # Auto-checkpoint before running.
+        self._memory.checkpoints.auto_checkpoint(
+            label=f"before_{resolved_mode}",
+            agent_state={"mode": resolved_mode, "task": task},
+        )
+
         model = model_factory.get_model(
             provider=self._provider,
             model_name=self._model_name,
@@ -130,13 +149,19 @@ class WigentAgent:
             max_iterations=max_iterations,
         )
 
+        # Track session.
+        session.total_tokens = self.state.get("token_usage", {}).get("total", 0)
+        session.total_cost = self.state.get("total_cost", 0.0)
+        session.files_modified = self.state.get("files_modified", [])
+        session.mode_history.append(resolved_mode)
+        self._memory.sessions.save_session(session)
+
         # Append to conversation history.
+        result_text = self.state.get("result") or ""
+        self._memory.context.add_message("assistant", result_text)
         self.messages.append({"role": "user", "content": task})
-        if self.state.get("result"):
-            self.messages.append({
-                "role": "assistant",
-                "content": self.state["result"],
-            })
+        if result_text:
+            self.messages.append({"role": "assistant", "content": result_text})
 
         return self.state
 
@@ -229,14 +254,24 @@ class WigentAgent:
 
         Returns:
             A dict with current mode, provider, model, conversation stats,
-            and the last run result (if any).
+            memory stats, and the last run result (if any).
         """
+        mem_stats = {}
+        try:
+            mem_stats = self._memory.context.get_stats()
+        except RuntimeError:
+            pass
+
         return {
             "mode": self._mode,
             "provider": self._provider,
             "model": self._model_name,
             "session_started": self._session_started,
+            "session_id": self._current_session_id,
             "messages_count": len(self.messages),
+            "memory_tokens": mem_stats.get("estimated_tokens", 0),
+            "memory_budget_pct": mem_stats.get("budget_used_pct", 0),
+            "memory_message_count": mem_stats.get("total_messages", 0),
             "last_run_status": self.state.get("status") if self.state else None,
             "last_run_iterations": self.state.get("iteration") if self.state else None,
             "last_run_cost": self.state.get("total_cost", 0.0) if self.state else 0.0,
@@ -247,7 +282,7 @@ class WigentAgent:
         }
 
     def reset(self) -> None:
-        """Clear the conversation history and reset agent state.
+        """Clear the conversation history, memory, and reset agent state.
 
         Does **not** change the current mode, provider, or model settings.
         """
@@ -255,7 +290,12 @@ class WigentAgent:
         self.state = None
         self._session_started = None
         self._loop = None
-        logger.info("Agent reset — conversation cleared.")
+        self._current_session_id = None
+        try:
+            self._memory.context.clear()
+        except RuntimeError:
+            pass
+        logger.info("Agent reset — conversation and memory cleared.")
 
     def load_project(self, path: str) -> dict[str, Any]:
         """Load project context from a directory.
@@ -310,13 +350,14 @@ class WigentAgent:
         context["source_summary"] = self._summarise_tree(abs_path)
 
         self._project_context = context
-        self.messages.append({
-            "role": "system",
-            "content": f"[PROJECT LOADED] {abs_path}\n"
-                       f"README: {'yes' if context['readme'] else 'no'}\n"
-                       f"Config files: {len(context['config_files'])}\n"
-                       f"Tree: {context['source_summary'][:200]}",
-        })
+        context_msg = (
+            f"[PROJECT LOADED] {abs_path}\n"
+            f"README: {'yes' if context['readme'] else 'no'}\n"
+            f"Config files: {len(context['config_files'])}\n"
+            f"Tree: {context['source_summary'][:200]}"
+        )
+        self._memory.context.inject_project_context(context_msg)
+        self.messages.append({"role": "system", "content": context_msg})
 
         logger.info("Project loaded: %s", abs_path)
         return {"success": True, "path": abs_path, "context": context}
