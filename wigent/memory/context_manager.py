@@ -6,7 +6,6 @@ from typing import Any
 
 from wigent.config import settings
 from wigent.models.base_model import LLMResponse
-from wigent.models.model_factory import factory as model_factory
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +79,8 @@ class ContextManager:
         """Lazy-init the model reference; may return None if unavailable."""
         if self._model is None:
             try:
-                self._model = model_factory.get_active_model()
+                from wigent.models.model_factory import factory as mf
+                self._model = mf.get_active_model()
             except Exception as exc:
                 logger.debug("Model unavailable for token counting: %s", exc)
         return self._model
