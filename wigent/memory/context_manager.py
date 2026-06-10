@@ -44,7 +44,7 @@ class ContextManager:
         self._messages: list[dict[str, Any]] = []
         self._system_prompt: str = ""
         self._project_context: str = ""
-        self._model = model_factory.get_active_model()
+        self._model = None
 
     # ── Public API ───────────────────────────────────────────────────────
 
@@ -76,18 +76,31 @@ class ContextManager:
                 preamble.append({"role": "system", "content": self._project_context})
             return preamble + list(self._messages)
 
+    def _get_model(self):
+        """Lazy-init the model reference; may return None if unavailable."""
+        if self._model is None:
+            try:
+                self._model = model_factory.get_active_model()
+            except Exception as exc:
+                logger.debug("Model unavailable for token counting: %s", exc)
+        return self._model
+
     def count_tokens(self, messages: list[dict[str, Any]] | None = None) -> int:
         """Estimate token count for a list of messages.
 
         Delegates to the active model's ``count_tokens()`` for accuracy.
-        Falls back to a 4-char-per-token heuristic.
+        Falls back to a 4-char-per-token heuristic when the model is
+        unavailable (e.g. no API key configured).
         """
         msgs = messages if messages is not None else self._messages
-        try:
-            return self._model.count_tokens(msgs)
-        except Exception:
-            total_chars = sum(len(str(m.get("content", ""))) for m in msgs)
-            return total_chars // 4
+        model = self._get_model()
+        if model is not None:
+            try:
+                return model.count_tokens(msgs)
+            except Exception:
+                pass
+        total_chars = sum(len(str(m.get("content", ""))) for m in msgs)
+        return total_chars // 4
 
     def trim_to_budget(self, budget: int | None = None) -> int:
         """Trim messages to fit within the conversation budget.
@@ -137,12 +150,17 @@ class ContextManager:
 
             summary_content = self._serialize_for_summary(to_summarize)
 
+        model = self._get_model()
+        if model is None:
+            logger.warning("summarize_old_messages: no model available, skipping")
+            return None
+
         summary_messages = [
             {"role": "user", "content": f"{SUMMARY_PROMPT}\n\n{summary_content}"},
         ]
 
         try:
-            response: LLMResponse = self._model.chat(
+            response: LLMResponse = model.chat(
                 messages=summary_messages,
                 tools=[],
                 temperature=0.3,
