@@ -42,6 +42,7 @@ from wigent.core.loop import AgentLoop, AgentState
 from wigent.core.orchestrator import Orchestrator
 from wigent.memory import MemorySystem
 from wigent.models.model_factory import factory as model_factory
+from wigent.safety import SafetySystem
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,8 @@ class WigentAgent:
         self._project_context: dict[str, Any] = {}
         self._memory: MemorySystem = MemorySystem()
         self._memory.initialize()
+        self._safety: SafetySystem = SafetySystem()
+        self._safety.initialize()
         self._current_session_id: str | None = None
 
         logger.info(
@@ -262,8 +265,15 @@ class WigentAgent:
         except RuntimeError:
             pass
 
+        safety_auto = False
+        try:
+            safety_auto = self._safety.approvals._auto_approve
+        except (RuntimeError, AttributeError):
+            pass
+
         return {
             "mode": self._mode,
+            "safety_auto_approve": safety_auto,
             "provider": self._provider,
             "model": self._model_name,
             "session_started": self._session_started,
@@ -281,6 +291,22 @@ class WigentAgent:
             "project_loaded": bool(self._project_context),
         }
 
+    def safe_write(self, file_path: str, content: str, original: str | None = None) -> bool:
+        """Write a file through the safety pipeline.
+
+        Validates the path, computes a diff, requests approval, and
+        writes only if approved.
+        """
+        return self._safety.safe_write(file_path, content, original)
+
+    def safe_execute(self, command: str) -> bool:
+        """Check a command through the safety pipeline.
+
+        Validates, sandbox-checks, and requests approval if needed.
+        Returns True only if the command is safe to run.
+        """
+        return self._safety.safe_execute(command)
+
     def reset(self) -> None:
         """Clear the conversation history, memory, and reset agent state.
 
@@ -293,6 +319,10 @@ class WigentAgent:
         self._current_session_id = None
         try:
             self._memory.context.clear()
+        except RuntimeError:
+            pass
+        try:
+            self._safety.approvals.set_auto_approve_mode(settings.AUTO_APPROVE)
         except RuntimeError:
             pass
         logger.info("Agent reset — conversation and memory cleared.")
