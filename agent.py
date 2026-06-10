@@ -86,6 +86,67 @@ def run_command(command: str) -> str:
         return str(e)
 
 
+def list_files(path: str = ".") -> str:
+    """Recursively list files and directories under WORKSPACE/path."""
+    target = os.path.abspath(os.path.join(WORKSPACE, path))
+    if not target.startswith(os.path.abspath(WORKSPACE)):
+        return "Error: path escapes the workspace."
+    if not os.path.isdir(target):
+        return f"Error: {path} is not a directory."
+    lines = []
+    for root, dirs, files in os.walk(target):
+        rel = os.path.relpath(root, WORKSPACE)
+        lines.append(f"📁 {rel}/")
+        for f in sorted(files):
+            lines.append(f"   📄 {os.path.join(rel, f)}")
+    return "\n".join(lines) if lines else "(empty)"
+
+
+def search_codebase(query: str) -> str:
+    """Search for a string across files in the workspace."""
+    try:
+        result = subprocess.run(
+            ["rg", "--heading", "--line-number", query, WORKSPACE],
+            capture_output=True, text=True, timeout=15,
+        )
+        if result.returncode == 0:
+            # Strip the WORKSPACE prefix from paths for cleaner output.
+            out = result.stdout.replace(os.path.abspath(WORKSPACE) + "/", "")
+            return out.strip() or f"No matches for '{query}'."
+        if result.returncode == 1:
+            return f"No matches for '{query}'."
+        return result.stderr.strip() or f"rg failed (exit {result.returncode})."
+    except FileNotFoundError:
+        # Fallback: pure-Python search.
+        matches = []
+        for root, _, files in os.walk(WORKSPACE):
+            for fname in files:
+                fpath = os.path.join(root, fname)
+                try:
+                    with open(fpath, "r", encoding="utf-8", errors="replace") as f:
+                        for i, line in enumerate(f, 1):
+                            if query in line:
+                                rel = os.path.relpath(fpath, WORKSPACE)
+                                matches.append(f"{rel}:{i}: {line.rstrip()}")
+                except Exception:
+                    pass
+        return "\n".join(matches) if matches else f"No matches for '{query}'."
+    except Exception as e:
+        return str(e)
+
+
+def get_file_summary(path: str) -> str:
+    """Return the first 2000 characters of a file inside the workspace."""
+    full_path = os.path.abspath(os.path.join(WORKSPACE, path))
+    if not full_path.startswith(os.path.abspath(WORKSPACE)):
+        return "Error: path escapes the workspace."
+    if not os.path.isfile(full_path):
+        return f"Error: file {path} does not exist."
+    with open(full_path, "r", encoding="utf-8", errors="replace") as f:
+        content = f.read(2000)
+    return content
+
+
 # ── tool schemas (OpenAI function-calling format) ────────────────────────
 
 tools_schema = [
@@ -132,6 +193,48 @@ tools_schema = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_files",
+            "description": "Recursively list files and directories inside the workspace.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Relative directory path (default '.')."},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_codebase",
+            "description": "Search for a string across all files in the workspace. Uses ripgrep if available, falls back to Python search.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "String to search for."},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_file_summary",
+            "description": "Read the first 2000 characters of a file. Useful for quickly previewing a file before editing.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Relative file path inside the workspace."},
+                },
+                "required": ["path"],
+            },
+        },
+    },
 ]
 
 # Map function names to their Python implementations.
@@ -139,6 +242,9 @@ available_functions = {
     "write_file": write_file,
     "read_file": read_file,
     "run_command": run_command,
+    "list_files": list_files,
+    "search_codebase": search_codebase,
+    "get_file_summary": get_file_summary,
 }
 
 
@@ -155,7 +261,15 @@ def run_agent(user_prompt: str):
                 "You have access to a sandbox workspace. "
                 "Write code, test it by running shell commands, "
                 "read error output, fix bugs, and repeat until "
-                "the task is complete. Think step‑by‑step."
+                "the task is complete. Think step‑by‑step.\n\n"
+                "IMPORTANT WORKFLOW:\n"
+                "1. First, inspect the workspace with `list_files` "
+                "and `search_codebase` to understand what already exists.\n"
+                "2. Read relevant files with `read_file` or "
+                "`get_file_summary` before editing them.\n"
+                "3. Do NOT overwrite unrelated code — only modify "
+                "files that are relevant to the task.\n"
+                "4. After making changes, test them with `run_command`."
             ),
         },
         {"role": "user", "content": user_prompt},
