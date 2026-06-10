@@ -44,6 +44,7 @@ class ContextManager:
         self._system_prompt: str = ""
         self._project_context: str = ""
         self._model = None
+        self._model_tried = False
 
     # ── Public API ───────────────────────────────────────────────────────
 
@@ -77,12 +78,14 @@ class ContextManager:
 
     def _get_model(self):
         """Lazy-init the model reference; may return None if unavailable."""
-        if self._model is None:
-            try:
-                from wigent.models.model_factory import factory as mf
-                self._model = mf.get_active_model()
-            except Exception as exc:
-                logger.debug("Model unavailable for token counting: %s", exc)
+        if self._model_tried:
+            return self._model
+        self._model_tried = True
+        try:
+            from wigent.models.model_factory import factory as mf
+            self._model = mf.get_active_model()
+        except Exception as exc:
+            logger.debug("Model unavailable for token counting: %s", exc)
         return self._model
 
     def count_tokens(self, messages: list[dict[str, Any]] | None = None) -> int:

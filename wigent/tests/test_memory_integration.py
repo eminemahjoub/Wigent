@@ -85,7 +85,7 @@ class TestContextManager:
     def test_token_budget_exceeded(self):
         cm = ContextManager(max_tokens=1000)
         with pytest.raises(TokenBudgetExceeded):
-            for _ in range(500):
+            for _ in range(250):
                 cm.add_message("user", "x" * 20)
 
 
@@ -263,9 +263,9 @@ class TestVectorStore:
         )
         Path(os.path.join(src, "README.md")).write_text("# Test Project\n")
         stats = vs.index_codebase(src)
-        assert stats["success"] is not True  # function returns stats, not success bool
         assert stats["files_scanned"] >= 2
         assert stats["chunks_added"] >= 2
+        assert stats["errors"] == []
 
 
 # ── 5. MemorySystem facade ─────────────────────────────────────────────
