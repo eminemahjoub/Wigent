@@ -40,6 +40,9 @@ from wigent.config import settings
 from wigent.config.modes import MODES, get_mode
 from wigent.core.loop import AgentLoop, AgentState
 from wigent.core.orchestrator import Orchestrator
+from wigent.core.workspace import WorkspaceDetector
+from wigent.core.project_context import ProjectContext
+from wigent.core.auto_indexer import AutoIndexer
 from wigent.memory import MemorySystem
 from wigent.models.model_factory import factory as model_factory
 from wigent.safety import SafetySystem
@@ -83,6 +86,11 @@ class WigentAgent:
         self._safety: SafetySystem = SafetySystem()
         self._safety.initialize()
         self._current_session_id: str | None = None
+
+        self.workspace_detector = WorkspaceDetector()
+        self.project_context = ProjectContext()
+        self.auto_indexer = AutoIndexer(vector_store=self._memory.vectors)
+        self._workspace_info: dict[str, Any] | None = None
 
         logger.info(
             "WigentAgent initialized  mode=%s  provider=%s  model=%s",
@@ -271,11 +279,16 @@ class WigentAgent:
         except (RuntimeError, AttributeError):
             pass
 
+        ws = self._workspace_info or {}
+
         return {
             "mode": self._mode,
             "safety_auto_approve": safety_auto,
             "provider": self._provider,
             "model": self._model_name,
+            "workspace_type": ws.get("project_type", "unknown"),
+            "workspace_framework": ws.get("framework"),
+            "workspace_path": ws.get("path", ""),
             "session_started": self._session_started,
             "session_id": self._current_session_id,
             "messages_count": len(self.messages),
@@ -307,6 +320,75 @@ class WigentAgent:
         """
         return self._safety.safe_execute(command)
 
+    def load_workspace(self, path: str | None = None) -> dict[str, Any]:
+        path = path or os.getcwd()
+        abs_path = os.path.abspath(path)
+
+        try:
+            info = self.workspace_detector.detect_project_type(abs_path)
+        except Exception as exc:
+            logger.warning("Workspace detection failed: %s", exc)
+            info = None
+
+        if info:
+            root = str(info.root_path) if info.root_path else abs_path
+            context_summary = self.project_context.load_context(
+                root,
+                project_type=info.type,
+                language=info.language,
+                framework=info.framework,
+                package_manager=info.package_manager,
+            )
+            self.auto_indexer.index_on_startup(root, background=True)
+        else:
+            context_summary = self.project_context.load_context(abs_path)
+            self.auto_indexer.index_on_startup(abs_path, background=True)
+
+        ws_info = {
+            "path": abs_path,
+            "project_type": info.type if info else "unknown",
+            "framework": info.framework if info else None,
+            "language": info.language if info else "unknown",
+            "has_git": info.has_git if info else False,
+            "has_tests": info.has_tests if info else False,
+            "has_docker": info.has_docker if info else False,
+            "package_manager": info.package_manager if info else None,
+            "context_loaded": bool(context_summary.strip()),
+        }
+        self._workspace_info = ws_info
+
+        if info and info.root_path and info.type != "unknown":
+            context_msg = (
+                f"[WORKSPACE] {info.type}"
+                + (f" ({info.framework})" if info.framework else "")
+                + f" @ {ws_info['path']}\n"
+                + (f"Package manager: {info.package_manager}\n" if info.package_manager else "")
+                + (f"Tests: {'yes' if info.has_tests else 'no'}\n")
+                + (f"Docker: {'yes' if info.has_docker else 'no'}\n")
+                + (f"Git: {'yes' if info.has_git else 'no'}\n")
+                + f"Context: {'loaded' if ws_info['context_loaded'] else 'none'}"
+            )
+            self._memory.context.inject_project_context(context_msg)
+            self.messages.append({"role": "system", "content": context_msg})
+
+        logger.info(
+            "Workspace loaded: %s (%s) at %s",
+            ws_info["project_type"], ws_info["framework"] or "", ws_info["path"],
+        )
+        return ws_info
+
+    def get_workspace_info(self) -> dict[str, Any]:
+        return dict(self._workspace_info) if self._workspace_info else {}
+
+    def reload_workspace(self) -> dict[str, Any]:
+        path = self._workspace_info.get("path", os.getcwd()) if self._workspace_info else os.getcwd()
+        return self.load_workspace(path)
+
+    def get_project_aware_prompt(self, mode: str) -> str:
+        from wigent.prompts import build_mode_prompt
+        base_prompt = build_mode_prompt(mode)
+        return self.project_context.inject_into_prompt(base_prompt)
+
     def reset(self) -> None:
         """Clear the conversation history, memory, and reset agent state.
 
@@ -325,6 +407,7 @@ class WigentAgent:
             self._safety.approvals.set_auto_approve_mode(settings.AUTO_APPROVE)
         except RuntimeError:
             pass
+        self._workspace_info = None
         logger.info("Agent reset — conversation and memory cleared.")
 
     def load_project(self, path: str) -> dict[str, Any]:
