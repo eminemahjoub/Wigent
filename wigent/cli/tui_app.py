@@ -24,7 +24,7 @@ from textual.app import App, ComposeResult, on
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
-from textual.widgets import Footer, Header, Input, Label, RichLog
+from textual.widgets import Header, Input, Label, RichLog
 from textual.worker import Worker, WorkerState
 
 from wigent.cli.tui_widgets.file_tree import WigentFileTree
@@ -89,7 +89,6 @@ class WigentTUI(App[None]):
                     )
 
         yield StatusBar(id="status-bar")
-        yield Footer()
 
     def on_mount(self) -> None:
         """Initialize on startup."""
@@ -107,10 +106,11 @@ class WigentTUI(App[None]):
             logger.exception("Failed to initialize agent: %s", exc)
             self._write_chat("[bold red]⚠ Failed to initialize agent. Check config.[/]")
 
-        # Welcome message
+        # Welcome banner
         self._write_chat(
-            "[bold cyan]🤖 Wigent ready![/]  "
-            "[dim]Type a message to begin. Press F1 for help.[/]"
+            "[on cyan bold white]  🤖 WIGENT  [/] [cyan bold]AI Coding Agent[/]\n"
+            "[dim]Type a message to begin.[/] [dim]Press[/] [bold]F1[/] [dim]for help,[/] "
+            "[bold]F2[/] [dim]to pick a model.[/]"
         )
 
         # If an initial prompt was passed, run it
@@ -131,7 +131,7 @@ class WigentTUI(App[None]):
 
     def _submit_message(self, message: str) -> None:
         """Process a user message."""
-        self._write_chat(f"[bold white]You ▸[/] {message}")
+        self._write_chat(f"[bold green]▶ You[/]  {message}")
 
         if message.startswith("/"):
             self._handle_command(message)
@@ -141,10 +141,10 @@ class WigentTUI(App[None]):
     def _send_to_agent(self, message: str) -> None:
         """Dispatch message to the agent in a background worker."""
         if self._agent is None:
-            self._write_chat("[red]Agent not initialized.[/]")
+            self._write_chat("[bold red]⚠ Agent not initialized.[/]")
             return
 
-        self._write_chat("[dim italic]🤖 Wigent is thinking...[/]")
+        self._write_chat("[dim italic]● 🤖 Wigent is thinking...[/]")
 
         def _do_run() -> Any:
             return self._agent.run(task=message)
@@ -160,27 +160,25 @@ class WigentTUI(App[None]):
             # Show a short, helpful message
             if "Missing credentials" in msg or "api_key" in msg.lower():
                 self._write_chat(
-                    "[bold red]⚠ No API key configured.[/]\n"
-                    "[dim]Run [bold]wigent setup[/] to configure a provider, "
-                    "or set the API key in your .env file.[/]"
+                    "[on red bold white]  ERROR  [/] [bold red]No API key configured.[/]\n"
+                    "[dim]Run[/] [bold]wigent setup[/] [dim]or set the key in ~/.wigent/.env[/]"
                 )
             elif "No endpoints found that support tool use" in msg:
                 self._write_chat(
-                    "[bold red]⚠ This model doesn't support tool use on OpenRouter.[/]\n"
-                    "[dim]Free tier models often lack tool support.[/]\n"
-                    "[dim]Try [bold]F2[/] to switch to a tool-capable model:\n"
-                    "  • anthropic/claude-3.5-sonnet\n"
-                    "  • openai/gpt-4o\n"
-                    "  • google/gemini-2.0-flash-exp[/]"
+                    "[on red bold white]  ERROR  [/] [bold red]Model lacks tool support.[/]\n"
+                    "[dim]Free tier models often can't use tools.[/]\n"
+                    "[dim]Press[/] [bold]F2[/] [dim]and pick:[/]\n"
+                    "  [cyan]• anthropic/claude-3.5-sonnet[/]\n"
+                    "  [cyan]• openai/gpt-4o[/]\n"
+                    "  [cyan]• google/gemini-2.0-flash-exp[/]"
                 )
             elif "404" in msg and "openrouter" in msg.lower():
                 self._write_chat(
-                    "[bold red]⚠ Model not available (404).[/]\n"
-                    "[dim]This model may be offline or removed from OpenRouter.[/]\n"
-                    "[dim]Press [bold]F2[/] to pick a different model.[/]"
+                    "[on red bold white]  ERROR  [/] [bold red]Model unavailable (404).[/]\n"
+                    "[dim]The model may be offline. Press[/] [bold]F2[/] [dim]to switch.[/]"
                 )
             else:
-                self._write_chat(f"[red]Error: {msg}[/]")
+                self._write_chat(f"[on red bold white]  ERROR  [/] [red]{msg}[/]")
             return
 
         if event.state != WorkerState.SUCCESS:
@@ -198,9 +196,9 @@ class WigentTUI(App[None]):
             result_text = result
 
         if result_text:
-            self._write_chat(f"[bold cyan]🤖 Wigent ▸[/] {result_text}")
+            self._write_chat(f"[on cyan bold white]  WIGENT  [/]  {result_text}")
         else:
-            self._write_chat("[dim](no response)[/]")
+            self._write_chat("[dim]● (no response)[/]")
 
         self._update_status_from_agent()
 

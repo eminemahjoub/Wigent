@@ -16,43 +16,56 @@ from rich.text import Text
 
 
 class StatusBar(Static):
-    """Status bar showing mode, model, tokens, and cost."""
+    """Unified status + key-hint dock bar. Replaces Footer."""
 
     DEFAULT_CSS = """
     StatusBar {
-        height: 1;
-        background: $primary-darken-2;
+        height: 2;
+        background: $surface-darken-2;
         color: $text;
         padding: 0 1;
+        border-top: solid $primary-darken-2;
     }
     """
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__("", **kwargs)
         self.mode = "orchestrator"
-        self.model = "claude-3.5-sonnet"
+        self.model = ""
         self.tokens = 0
         self.cost = 0.0
 
     def render(self) -> Text:
-        """Render the status bar."""
+        """Render two-line status bar."""
+        # Line 1: Info
+        info = Text()
+        info.append("● ", style="bold cyan")
+        info.append(f"{self.mode.upper()}  ", style="bold cyan")
+        info.append(f"🧠 {self.model or '—'}  ", style="green")
+        info.append(f"📊 {self.tokens:,} tok  ", style="yellow")
+        info.append(f"💰 ${self.cost:.4f}", style="magenta")
+
+        # Line 2: Key bindings
+        keys = Text()
+        binds = [
+            ("^Q", "Quit"),
+            ("^L", "Clear"),
+            ("^M", "Mode"),
+            ("F1", "Help"),
+            ("F2", "Model"),
+            ("F3", "Files"),
+            ("Esc", "Input"),
+        ]
+        for shortcut, label in binds:
+            keys.append(f" {shortcut} ", style="bold white on $primary-darken-1")
+            keys.append(f" {label} ", style="dim")
+        keys.append("  palette", style="italic dim")
+
+        # Combine
         text = Text()
-
-        # Mode
-        text.append(f"🎯 {self.mode.upper()}", style="bold cyan")
-        text.append(" │ ", style="dim")
-
-        # Model
-        text.append(f"🧠 {self.model}", style="green")
-        text.append(" │ ", style="dim")
-
-        # Tokens
-        text.append(f"📊 {self.tokens:,} tokens", style="yellow")
-        text.append(" │ ", style="dim")
-
-        # Cost
-        text.append(f"💰 ${self.cost:.4f}", style="magenta")
-
+        text.append_text(info)
+        text.append("\n")
+        text.append_text(keys)
         return text
 
     def update_info(
