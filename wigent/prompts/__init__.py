@@ -35,6 +35,7 @@ _AVAILABLE_PROMPTS: Final[set[str]] = {
     "reviewer",
     "tool_use",
     "safety",
+    "interview",
 }
 
 # ── cache ────────────────────────────────────────────────────────────────
