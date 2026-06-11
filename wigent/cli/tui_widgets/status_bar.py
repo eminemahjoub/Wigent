@@ -57,9 +57,9 @@ class StatusBar(Static):
             ("Esc", "Input"),
         ]
         for shortcut, label in binds:
-            keys.append(f" {shortcut} ", style="bold white on $primary-darken-1")
-            keys.append(f" {label} ", style="dim")
-        keys.append("  palette", style="italic dim")
+            keys.append(f" {shortcut} ", style="bold white on rgb(40,40,40)")
+            keys.append(f" {label}  ", style="dim")
+        keys.append("palette", style="italic dim")
 
         # Combine
         text = Text()
