@@ -97,7 +97,12 @@ class ModelPickerModal(ModalScreen[tuple[str, str] | None]):
         self._refresh_models()
 
     def _refresh_models(self) -> None:
-        model_list = self.query_one("#model-list", OptionList)
+        try:
+            model_list = self.query_one("#model-list", OptionList)
+        except Exception:
+            # Widget not yet mounted (called from __init__ via reactive watcher)
+            return
+
         model_list.clear_options()
 
         cfg = PROVIDER_CONFIGS.get(self.selected_provider)
