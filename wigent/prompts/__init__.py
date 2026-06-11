@@ -37,6 +37,7 @@ _AVAILABLE_PROMPTS: Final[set[str]] = {
     "safety",
     "interview",
     "ideate",
+    "spec",
 }
 
 # ── cache ────────────────────────────────────────────────────────────────

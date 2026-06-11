@@ -134,6 +134,7 @@ _DEFAULT_SKILL_DEFS: list[dict[str, Any]] = [
             "specification", "write prd", "define requirements", "feature spec",
             "functional spec",
         ],
+        "prompt_template": "prompts/spec.md",
     },
     # ── PLAN ────────────────────────────────────────────────────────────
     {
