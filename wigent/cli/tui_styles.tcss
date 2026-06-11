@@ -1,20 +1,21 @@
 /* ════════════════════════════════════════
-   wigent — TUI Styles  (v0.2)
+   wigent — TUI Styles  (v0.3 OpenCode)
    Role: TCSS styles for the Textual TUI
    Author: wigent team
    ════════════════════════════════════════ */
 
 Screen {
-    background: $surface;
-    color: $text;
+    background: #0d1117;
+    color: #c9d1d9;
 }
 
 Header {
-    background: $primary;
-    color: $text;
+    background: #161b22;
+    color: #f0f6fc;
     height: 1;
     text-style: bold;
     dock: top;
+    border-bottom: solid #30363d;
 }
 
 #main-container {
@@ -25,11 +26,11 @@ Header {
 /* ── Sidebar ─────────────────────────── */
 
 #sidebar {
-    width: 22%;
-    min-width: 18;
-    max-width: 35;
-    background: $surface-darken-1;
-    border-right: solid $primary-darken-2;
+    width: 24%;
+    min-width: 20;
+    max-width: 36;
+    background: #161b22;
+    border-right: solid #21262d;
     display: block;
 }
 
@@ -40,22 +41,32 @@ Header {
 #file-tree {
     width: 100%;
     height: 1fr;
-    background: $surface-darken-1;
+    background: #161b22;
     border: none;
     padding: 0;
+    color: #8b949e;
 }
 
 #file-tree:focus {
-    background: $surface-darken-2;
+    background: #1c2128;
+}
+
+#file-tree .directory-tree--folder {
+    color: #58a6ff;
+    text-style: bold;
+}
+
+#file-tree .directory-tree--file {
+    color: #c9d1d9;
 }
 
 .panel-title {
     text-style: bold;
-    color: $accent;
+    color: #f78166;
     height: 1;
     padding: 0 1;
-    background: $surface-darken-2;
-    border-bottom: solid $primary-darken-2;
+    background: #161b22;
+    border-bottom: solid #21262d;
 }
 
 /* ── Content / Chat ───────────────────── */
@@ -63,22 +74,23 @@ Header {
 #content {
     width: 1fr;
     layout: vertical;
+    background: #0d1117;
 }
 
 #chat-panel {
     height: 1fr;
     padding: 0;
-    background: $surface;
+    background: #0d1117;
 }
 
 #chat-log {
     width: 100%;
     height: 100%;
-    background: $surface;
+    background: #0d1117;
     border: none;
-    padding: 0 1;
+    padding: 0 2;
     scrollbar-size: 1 1;
-    scrollbar-color: $primary-darken-2 $surface-darken-1;
+    scrollbar-color: #30363d #161b22;
 }
 
 /* ── Input ───────────────────────────── */
@@ -86,21 +98,22 @@ Header {
 #input-panel {
     height: auto;
     max-height: 5;
-    padding: 0 1 1 1;
-    background: $surface-darken-1;
-    border-top: solid $primary-darken-2;
+    padding: 0 2 1 2;
+    background: #161b22;
+    border-top: solid #21262d;
 }
 
 #user-input {
     width: 100%;
-    border: solid $primary-darken-1;
-    background: $surface;
-    color: $text;
+    border: solid #30363d;
+    background: #0d1117;
+    color: #c9d1d9;
+    height: 3;
 }
 
 #user-input:focus {
-    border: solid $accent;
-    background: $surface-lighten-1;
+    border: solid #58a6ff;
+    background: #0d1117;
 }
 
 /* ── Status Bar ──────────────────────── */
@@ -108,11 +121,14 @@ Header {
 #status-bar {
     dock: bottom;
     layer: dock;
+    background: #161b22;
+    color: #8b949e;
+    border-top: solid #21262d;
 }
 
 /* ── Mode-specific styling ───────────── */
-.mode-orchestrator { color: $primary; }
-.mode-architect    { color: $secondary; }
-.mode-coder        { color: $accent; }
-.mode-debugger     { color: $warning; }
-.mode-reviewer     { color: $success; }
+.mode-orchestrator { color: #58a6ff; }
+.mode-architect    { color: #a371f7; }
+.mode-coder        { color: #3fb950; }
+.mode-debugger     { color: #d29922; }
+.mode-reviewer     { color: #f78166; }

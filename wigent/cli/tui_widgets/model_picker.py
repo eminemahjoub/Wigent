@@ -33,14 +33,14 @@ class ModelPickerModal(ModalScreen[tuple[str, str, str | None] | None]):
         width: 90;
         height: auto;
         max-height: 90%;
-        background: $surface-darken-1;
-        border: thick $primary;
+        background: #161b22;
+        border: thick #58a6ff;
         padding: 1 2;
     }
     #picker-title {
         text-align: center;
         text-style: bold;
-        color: $accent;
+        color: #f78166;
         height: 1;
         margin-bottom: 1;
     }
@@ -49,36 +49,37 @@ class ModelPickerModal(ModalScreen[tuple[str, str, str | None] | None]):
     }
     #provider-list {
         width: 35%;
-        border: solid $primary-darken-2;
-        background: $surface;
+        border: solid #30363d;
+        background: #0d1117;
     }
     #provider-list:focus {
-        border: solid $accent;
+        border: solid #58a6ff;
     }
     #model-list {
         width: 65%;
-        border: solid $primary-darken-2;
-        background: $surface;
+        border: solid #30363d;
+        background: #0d1117;
     }
     #model-list:focus {
-        border: solid $accent;
+        border: solid #58a6ff;
     }
     #api-key-section {
         height: auto;
         margin-top: 1;
-        border-top: solid $primary-darken-2;
+        border-top: solid #30363d;
         padding: 1 0 0 0;
     }
     #api-key-label {
         height: 1;
-        color: $text-muted;
+        color: #8b949e;
     }
     #api-key-input {
         height: 1;
-        border: solid $primary-darken-1;
+        border: solid #30363d;
+        background: #0d1117;
     }
     #api-key-input:focus {
-        border: solid $accent;
+        border: solid #58a6ff;
     }
     #picker-footer {
         height: auto;

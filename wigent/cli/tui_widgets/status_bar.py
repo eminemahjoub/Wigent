@@ -21,10 +21,10 @@ class StatusBar(Static):
     DEFAULT_CSS = """
     StatusBar {
         height: 2;
-        background: $surface-darken-2;
-        color: $text;
-        padding: 0 1;
-        border-top: solid $primary-darken-2;
+        background: #161b22;
+        color: #8b949e;
+        padding: 0 2;
+        border-top: solid #21262d;
     }
     """
 
@@ -39,11 +39,11 @@ class StatusBar(Static):
         """Render two-line status bar."""
         # Line 1: Info
         info = Text()
-        info.append("● ", style="bold cyan")
-        info.append(f"{self.mode.upper()}  ", style="bold cyan")
-        info.append(f"🧠 {self.model or '—'}  ", style="green")
-        info.append(f"📊 {self.tokens:,} tok  ", style="yellow")
-        info.append(f"💰 ${self.cost:.4f}", style="magenta")
+        info.append("● ", style="bold #58a6ff")
+        info.append(f"{self.mode.upper()}  ", style="bold #58a6ff")
+        info.append(f"🧠 {self.model or '—'}  ", style="#3fb950")
+        info.append(f"📊 {self.tokens:,} tok  ", style="#d29922")
+        info.append(f"💰 ${self.cost:.4f}", style="#a371f7")
 
         # Line 2: Key bindings
         keys = Text()
@@ -57,9 +57,9 @@ class StatusBar(Static):
             ("Esc", "Input"),
         ]
         for shortcut, label in binds:
-            keys.append(f" {shortcut} ", style="bold white on rgb(40,40,40)")
-            keys.append(f" {label}  ", style="dim")
-        keys.append("palette", style="italic dim")
+            keys.append(f" {shortcut} ", style="bold #f0f6fc on #30363d")
+            keys.append(f" {label}  ", style="dim #8b949e")
+        keys.append("palette", style="italic #484f58")
 
         # Combine
         text = Text()
