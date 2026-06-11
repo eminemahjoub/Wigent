@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from textual.widgets import Static
 from rich.text import Text
 
@@ -25,8 +27,8 @@ class StatusBar(Static):
     }
     """
 
-    def __init__(self) -> None:
-        super().__init__("")
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__("", **kwargs)
         self.mode = "orchestrator"
         self.model = "claude-3.5-sonnet"
         self.tokens = 0

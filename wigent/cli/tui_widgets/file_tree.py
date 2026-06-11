@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 from textual.widgets import DirectoryTree
 
@@ -30,8 +30,8 @@ class WigentFileTree(DirectoryTree):
     }
     """
 
-    def __init__(self, path: str = ".") -> None:
-        super().__init__(path)
+    def __init__(self, path: str = ".", **kwargs: Any) -> None:
+        super().__init__(path, **kwargs)
         self.show_root = False
         self.show_guides = True
 
