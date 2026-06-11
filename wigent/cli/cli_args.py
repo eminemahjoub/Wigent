@@ -4,6 +4,7 @@ import sys
 from typing import Any
 
 import click
+from click.exceptions import Exit as ClickExit
 
 
 @click.command(
@@ -96,19 +97,17 @@ def parse_args(argv: list[str] | None = None) -> dict[str, Any]:
     """
     args = argv if argv is not None else sys.argv[1:]
 
-    # Check for --help / -h explicitly before invoking Click.
-    if "--help" in args or "-h" in args:
-        ctx = cli_main.make_context("wigent", args)
-        click.echo(cli_main.get_help(ctx))
-        sys.exit(0)
-
-    # Check for --version explicitly.
+    # Check for --version explicitly before Click processing.
     if "--version" in args:
-        click.echo(f"wigent, version 0.6.0")
+        click.echo("wigent, version 0.6.0")
         sys.exit(0)
 
-    ctx = cli_main.make_context("wigent", args)
-    return cli_main.invoke(ctx)
+    try:
+        ctx = cli_main.make_context("wigent", args)
+        return cli_main.invoke(ctx)
+    except ClickExit:
+        # Click raises Exit(0) when --help is processed; convert to SystemExit.
+        sys.exit(0)
 
 
 __all__ = ["cli_main", "parse_args"]
