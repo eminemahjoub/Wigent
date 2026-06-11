@@ -167,8 +167,16 @@ verify_install() {
 # Run interactive setup wizard
 run_setup() {
     echo ""
-    log_info "Launching provider setup wizard..."
     
+    # Skip wizard when stdin is not a terminal (e.g. curl | bash)
+    if [ ! -t 0 ]; then
+        log_info "Piped install detected — skipping interactive setup"
+        log_info "Run this after install to configure your provider:"
+        echo -e "     ${CYAN}wigent setup${NC}"
+        return 0
+    fi
+    
+    log_info "Launching provider setup wizard..."
     export PATH="$HOME/.local/bin:$PATH"
     
     if command -v wigent &> /dev/null; then
