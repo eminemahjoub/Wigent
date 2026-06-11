@@ -28,4 +28,4 @@ def run_agent(user_prompt: str, **kwargs: str) -> str:
 
 
 __all__ = ["run_agent", "settings"]
-__version__ = "0.5.5"
+__version__ = "1.0.0"

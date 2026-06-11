@@ -127,11 +127,13 @@ def _get_repo(path: str = "."):
     if err:
         raise ValueError(err)
     try:
-        import git
+        import git  # type: ignore[import-untyped]
         repo = git.Repo(resolved, search_parent_directories=True)
-    except git.exc.InvalidGitRepositoryError:
-        raise ValueError(f"Not a git repository: {resolved}")
+    except ImportError:
+        raise ValueError("gitpython is not installed. Run: pip install gitpython")
     except Exception as exc:
+        if hasattr(git, "exc") and isinstance(exc, git.exc.InvalidGitRepositoryError):
+            raise ValueError(f"Not a git repository: {resolved}")
         raise ValueError(f"Failed to open git repo: {exc}")
     return repo
 
@@ -198,7 +200,9 @@ def check_is_git_repo(path: str = ".") -> dict[str, Any]:
         result = not repo.bare
         repo.close()
         return {"success": True, "is_git_repo": result, "git_dir": repo.git_dir, "working_dir": repo.working_dir, "error": None}
-    except (git.exc.InvalidGitRepositoryError, Exception) as exc:
+    except ImportError:
+        return {"success": False, "is_git_repo": False, "error": "gitpython is not installed"}
+    except Exception as exc:
         return {"success": True, "is_git_repo": False, "error": None, "detail": str(exc)}
 
 
@@ -216,7 +220,9 @@ def get_repo_root(path: str = ".") -> dict[str, Any]:
         root = repo.working_dir
         repo.close()
         return {"success": True, "root": root, "error": None}
-    except (git.exc.InvalidGitRepositoryError, Exception) as exc:
+    except ImportError:
+        return {"success": False, "root": None, "error": "gitpython is not installed"}
+    except Exception as exc:
         return {"success": False, "error": f"Not a git repository: {exc}", "root": None}
 
 
