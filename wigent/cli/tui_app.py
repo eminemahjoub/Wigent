@@ -112,11 +112,8 @@ class WigentTUI(App[None]):
 
         # Welcome banner
         self._write_chat(
-            "[bold #58a6ff]╭─────────────────────────[/]\n"
-            "[bold #58a6ff]│[/]  [bold #f0f6fc]🤖 WIGENT[/]  [dim #8b949e]AI Coding Agent[/]  [bold #58a6ff]│[/]\n"
-            "[bold #58a6ff]╰─────────────────────────[/]\n"
-            "[dim #8b949e]Type a message to begin. Press[/] [bold #58a6ff]F1[/] [dim #8b949e]for help,[/] "
-            "[bold #58a6ff]F2[/] [dim #8b949e]to pick a model.[/]"
+            "[bold #58a6ff]🤖 WIGENT[/]  [dim #8b949e]AI Coding Agent — type a message, press[/] "
+            "[bold #58a6ff]F2[/] [dim #8b949e]to pick a model[/]"
         )
 
         # If an initial prompt was passed, run it
@@ -137,11 +134,7 @@ class WigentTUI(App[None]):
 
     def _submit_message(self, message: str) -> None:
         """Process a user message."""
-        self._write_chat(
-            f"[bold #3fb950]╭─ You ───────────────────[/]\n"
-            f"[bold #3fb950]│[/]  {message}\n"
-            f"[bold #3fb950]╰─────────────────────────[/]"
-        )
+        self._write_chat(f"[bold #3fb950]▶ You[/]  {message}")
 
         if message.startswith("/"):
             self._handle_command(message)
@@ -151,11 +144,7 @@ class WigentTUI(App[None]):
     def _send_to_agent(self, message: str) -> None:
         """Dispatch message to the agent in a background worker."""
         if self._agent is None:
-            self._write_chat(
-                "[bold #f85149]╭─ Error ─────────────────[/]\n"
-                "[bold #f85149]│[/]  Agent not initialized.\n"
-                "[bold #f85149]╰─────────────────────────[/]"
-            )
+            self._write_chat("[bold #f85149]⚠[/]  [bold #f85149]Agent not initialized[/]")
             return
 
         self._write_chat("[dim #8b949e]● 🤖 Wigent is thinking...[/]")
@@ -183,34 +172,19 @@ class WigentTUI(App[None]):
             msg = result["_error"]
             if "Missing credentials" in msg or "api_key" in msg.lower():
                 self._write_chat(
-                    "[bold #f85149]╭─ Error ─────────────────[/]\n"
-                    "[bold #f85149]│[/]  No API key configured.\n"
-                    "[bold #f85149]│[/]  [dim]Run[/] [bold]wigent setup[/] [dim]or set the key in ~/.wigent/.env[/]\n"
-                    "[bold #f85149]╰─────────────────────────[/]"
+                    "[bold #f85149]⚠[/]  [bold #f85149]Add your API key[/]  [dim #8b949e](F2 to configure)[/]"
                 )
             elif "No endpoints found that support tool use" in msg:
                 self._write_chat(
-                    "[bold #f85149]╭─ Error ─────────────────[/]\n"
-                    "[bold #f85149]│[/]  Model lacks tool support.\n"
-                    "[bold #f85149]│[/]  [dim]Free tier models often can't use tools.[/]\n"
-                    "[bold #f85149]│[/]  [dim]Press[/] [bold #58a6ff]F2[/] [dim]and pick:[/]\n"
-                    "[bold #f85149]│[/]    [bold #58a6ff]• anthropic/claude-3.5-sonnet[/]\n"
-                    "[bold #f85149]│[/]    [bold #58a6ff]• openai/gpt-4o[/]\n"
-                    "[bold #f85149]│[/]    [bold #58a6ff]• google/gemini-2.0-flash-exp[/]\n"
-                    "[bold #f85149]╰─────────────────────────[/]"
+                    "[bold #f85149]⚠[/]  [bold #f85149]Model doesn't support tools[/]  [dim #8b949e](F2 to switch)[/]"
                 )
             elif "404" in msg and "openrouter" in msg.lower():
                 self._write_chat(
-                    "[bold #f85149]╭─ Error ─────────────────[/]\n"
-                    "[bold #f85149]│[/]  Model unavailable (404).\n"
-                    "[bold #f85149]│[/]  [dim]The model may be offline. Press[/] [bold #58a6ff]F2[/] [dim]to switch.[/]\n"
-                    "[bold #f85149]╰─────────────────────────[/]"
+                    "[bold #f85149]⚠[/]  [bold #f85149]Model unavailable[/]  [dim #8b949e](F2 to switch)[/]"
                 )
             else:
                 self._write_chat(
-                    f"[bold #f85149]╭─ Error ─────────────────[/]\n"
-                    f"[bold #f85149]│[/]  {msg}\n"
-                    f"[bold #f85149]╰─────────────────────────[/]"
+                    f"[bold #f85149]⚠[/]  [bold #f85149]{msg}[/]"
                 )
             return
 
@@ -222,11 +196,7 @@ class WigentTUI(App[None]):
             result_text = result
 
         if result_text:
-            self._write_chat(
-                f"[bold #58a6ff]╭─ Wigent ────────────────[/]\n"
-                f"[bold #58a6ff]│[/]  {result_text}\n"
-                f"[bold #58a6ff]╰─────────────────────────[/]"
-            )
+            self._write_chat(f"[bold #58a6ff]● Wigent[/]  {result_text}")
         else:
             self._write_chat("[dim #8b949e]● (no response)[/]")
 
