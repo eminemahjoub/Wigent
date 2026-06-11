@@ -164,6 +164,21 @@ verify_install() {
     fi
 }
 
+# Run interactive setup wizard
+run_setup() {
+    echo ""
+    log_info "Launching provider setup wizard..."
+    
+    export PATH="$HOME/.local/bin:$PATH"
+    
+    if command -v wigent &> /dev/null; then
+        wigent setup || log_warning "Setup wizard exited early"
+    else
+        log_warning "wigent not in PATH yet, skipping setup wizard"
+        log_info "Run 'wigent setup' manually after reloading your shell"
+    fi
+}
+
 # Print completion message
 print_completion() {
     echo ""
@@ -209,6 +224,7 @@ main() {
     setup_repo
     install_wigent
     verify_install
+    run_setup
     print_completion
 }
 

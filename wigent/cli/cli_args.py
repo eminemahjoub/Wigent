@@ -86,7 +86,7 @@ def cli_main(
         "no_banner": no_banner,
         "debug": debug,
         "yes": yes,
-        "version": "0.6.0",
+        "version": "1.0.0",
     }
 
 
@@ -94,12 +94,19 @@ def parse_args(argv: list[str] | None = None) -> dict[str, Any]:
     """Parse CLI arguments using Click and return a config dict.
 
     Handles --help and --version automatically via Click.
+    Routes 'setup' subcommand to the interactive setup wizard.
     """
     args = argv if argv is not None else sys.argv[1:]
 
+    # Route 'wigent setup' to the interactive wizard.
+    if args and args[0] == "setup":
+        from wigent.cli.setup_wizard import main as setup_main
+        setup_main()
+        sys.exit(0)
+
     # Check for --version explicitly before Click processing.
     if "--version" in args:
-        click.echo("wigent, version 0.6.0")
+        click.echo("wigent, version 1.0.0")
         sys.exit(0)
 
     try:
