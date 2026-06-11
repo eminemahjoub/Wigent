@@ -26,7 +26,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # ── supported provider names ────────────────────────────────────────────
 ProviderName = Literal[
-    "openai", "anthropic", "gemini", "groq", "ollama", "mistral", "cohere", "litellm"
+    "openai", "anthropic", "gemini", "groq", "ollama", "openrouter",
+    "mistral", "cohere", "litellm"
 ]
 
 # ── supported agent modes ───────────────────────────────────────────────
@@ -72,6 +73,7 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = Field(default="", description="Google Gemini API key")
     GROQ_API_KEY: str = Field(default="", description="Groq API key")
     MISTRAL_API_KEY: str = Field(default="", description="Mistral API key")
+    OPENROUTER_API_KEY: str = Field(default="", description="OpenRouter API key (300+ models)")
     COHERE_API_KEY: str = Field(default="", description="Cohere API key")
 
     # ── Local provider config ────────────────────────────────────────────
@@ -157,7 +159,7 @@ class Settings(BaseSettings):
 
     # ── Field validators ─────────────────────────────────────────────────
 
-    @field_validator("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GROQ_API_KEY", "MISTRAL_API_KEY", "COHERE_API_KEY")
+    @field_validator("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GROQ_API_KEY", "MISTRAL_API_KEY", "OPENROUTER_API_KEY", "COHERE_API_KEY")
     @classmethod
     def warn_empty_api_key(cls, v: str, info) -> str:
         """Warn if an API key field is empty but the matching provider is selected."""
@@ -167,6 +169,7 @@ class Settings(BaseSettings):
             "GEMINI_API_KEY": "gemini",
             "GROQ_API_KEY": "groq",
             "MISTRAL_API_KEY": "mistral",
+            "OPENROUTER_API_KEY": "openrouter",
             "COHERE_API_KEY": "cohere",
         }
         # Warning only logged at runtime, not during pydantic init.
@@ -212,6 +215,7 @@ class Settings(BaseSettings):
             "mistral": self.MISTRAL_API_KEY,
             "cohere": self.COHERE_API_KEY,
             "ollama": "",
+            "openrouter": self.OPENROUTER_API_KEY,
             "litellm": "",
         }
         return key_map.get(self.DEFAULT_PROVIDER, "")
@@ -227,7 +231,8 @@ class Settings(BaseSettings):
     @property
     def supported_providers(self) -> list[str]:
         """Return list of all supported provider names."""
-        return ["openai", "anthropic", "gemini", "groq", "ollama", "mistral", "cohere", "litellm"]
+        return ["openai", "anthropic", "gemini", "groq", "ollama",
+                "openrouter", "mistral", "cohere", "litellm"]
 
     def provider_base_url(self, provider: str | None = None) -> str | None:
         """Return the base URL for a local provider, or None for cloud providers."""
