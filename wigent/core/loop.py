@@ -238,12 +238,14 @@ class AgentLoop:
         tool_filter: list[str] | None = None,
         enable_checkpoints: bool = True,
         vector_store: Any | None = None,
+        mcp_registry: Any | None = None,
     ) -> None:
         self._model: BaseModel = model or model_factory.get_active_model()
         self._mode_cfg: AgentModeConfig = get_mode(mode)
         self._tool_filter: list[str] | None = tool_filter
         self._enable_checkpoints = enable_checkpoints
         self._vector_store: Any | None = vector_store
+        self._mcp_registry: Any | None = mcp_registry
         self._graph: CompiledStateGraph | None = None
         self._last_state: AgentState | None = None
 
@@ -531,7 +533,12 @@ class AgentLoop:
 
             # Execute.
             tool_fn = registry.get(func_name)
-            if tool_fn is None:
+            is_mcp = False
+            if tool_fn is None and self._mcp_registry is not None:
+                if func_name in self._mcp_registry.list_tools():
+                    is_mcp = True
+
+            if tool_fn is None and not is_mcp:
                 logger.error("Unknown tool: %s", func_name)
                 results.append({
                     "role": "tool",
@@ -540,11 +547,14 @@ class AgentLoop:
                 })
                 continue
 
-            logger.info("act  tool=%s  args=%s", func_name, json.dumps(args)[:120])
+            logger.info("act  tool=%s  mcp=%s  args=%s", func_name, is_mcp, json.dumps(args)[:120])
             t0 = time.perf_counter()
 
             try:
-                output = tool_fn(**args)
+                if is_mcp and self._mcp_registry is not None:
+                    output = self._mcp_registry.call_tool(func_name, args)
+                else:
+                    output = tool_fn(**args)  # type: ignore[operator]
                 output_str = json.dumps(output, default=str, ensure_ascii=False)
             except Exception as exc:
                 logger.exception("Tool %s failed: %s", func_name, exc)
@@ -702,7 +712,14 @@ class AgentLoop:
         else:
             allowed = self._mode_cfg.allowed_tools
 
-        return [s for s in TOOL_SCHEMAS if s["function"]["name"] in allowed]
+        native = [s for s in TOOL_SCHEMAS if s["function"]["name"] in allowed]
+        mcp = []
+        if self._mcp_registry is not None:
+            for schema in self._mcp_registry.get_tool_schemas():
+                name = schema.get("function", {}).get("name", "")
+                if name in allowed or allowed == ["*"] or not allowed:
+                    mcp.append(schema)
+        return native + mcp
 
     # ── Messages ────────────────────────────────────────────────────
 
@@ -714,6 +731,11 @@ class AgentLoop:
         # native function calling.
         allowed = self._mode_cfg.allowed_tools
         tool_list = "\n".join(f"  - `{t}`" for t in sorted(allowed))
+        # Include MCP tools in the list
+        if self._mcp_registry is not None:
+            mcp_names = self._mcp_registry.list_tools()
+            if mcp_names:
+                tool_list += "\n" + "\n".join(f"  - `{t}` (MCP)" for t in sorted(mcp_names))
         system_prompt += (
             f"\n\n## Available tools\n\nYou have access to the following tools:\n{tool_list}\n\n"
             f"Maximum iterations for this mode: {self._mode_cfg.max_iterations or settings.MAX_ITERATIONS}."

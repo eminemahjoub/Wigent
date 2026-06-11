@@ -31,6 +31,7 @@ Usage
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from datetime import datetime, timezone
@@ -45,6 +46,7 @@ from wigent.core.project_context import ProjectContext
 from wigent.core.auto_indexer import AutoIndexer
 from wigent.memory import MemorySystem
 from wigent.models.model_factory import factory as model_factory
+from wigent.mcp import MCPRegistry
 from wigent.safety import SafetySystem
 
 logger = logging.getLogger(__name__)
@@ -91,6 +93,10 @@ class WigentAgent:
         self.project_context = ProjectContext()
         self.auto_indexer = AutoIndexer(vector_store=self._memory.vectors)
         self._workspace_info: dict[str, Any] | None = None
+
+        # MCP registry for external tools
+        self._mcp_registry: MCPRegistry = MCPRegistry()
+        self._load_mcp_servers()
 
         logger.info(
             "WigentAgent initialized  mode=%s  provider=%s  model=%s",
@@ -148,11 +154,16 @@ class WigentAgent:
             model_name=self._model_name,
         )
 
+        # Connect MCP servers before running
+        if self._mcp_registry:
+            self._mcp_registry.connect_all()
+
         self._loop = AgentLoop(
             model=model,
             mode=resolved_mode,
             enable_checkpoints=self._enable_checkpoints,
             vector_store=self._memory.vectors,
+            mcp_registry=self._mcp_registry,
         )
 
         self.state = self._loop.run(
@@ -211,11 +222,16 @@ class WigentAgent:
             model_name=self._model_name,
         )
 
+        # Connect MCP servers before running
+        if self._mcp_registry:
+            self._mcp_registry.connect_all()
+
         self._loop = AgentLoop(
             model=model,
             mode=resolved_mode,
             enable_checkpoints=self._enable_checkpoints,
             vector_store=self._memory.vectors,
+            mcp_registry=self._mcp_registry,
         )
 
         final_state: AgentState | None = None
@@ -567,6 +583,24 @@ class WigentAgent:
         return {"success": True, "path": abs_path, "context": context}
 
     # ── Internals ────────────────────────────────────────────────────
+
+    def _load_mcp_servers(self) -> None:
+        """Load MCP server configs from ~/.wigent/mcp_servers.json."""
+        config_path = os.path.expanduser("~/.wigent/mcp_servers.json")
+        if not os.path.exists(config_path):
+            return
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                config = json.load(f)
+            for name, server in config.items():
+                cmd = server.get("command", [])
+                if not cmd:
+                    continue
+                env = server.get("env")
+                self._mcp_registry.add_server(name, cmd, env)
+                logger.info("Registered MCP server: %s -> %s", name, cmd)
+        except Exception as exc:
+            logger.warning("Failed to load MCP config: %s", exc)
 
     def _resolve_mode(self, task: str, mode: str | None) -> str:
         """Determine the effective mode for a task."""
