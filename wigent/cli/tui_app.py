@@ -152,7 +152,21 @@ class WigentTUI(App[None]):
 
     @on(Worker.StateChanged)
     def _on_worker_state_changed(self, event: Worker.StateChanged) -> None:
-        """Handle background worker completion."""
+        """Handle background worker completion or error."""
+        if event.state == WorkerState.ERROR:
+            error = event.worker.error
+            msg = str(error) if error else "Unknown error"
+            # Show a short, helpful message
+            if "Missing credentials" in msg or "api_key" in msg.lower():
+                self._write_chat(
+                    "[bold red]⚠ No API key configured.[/]\n"
+                    "[dim]Run [bold]wigent setup[/] to configure a provider, "
+                    "or set the API key in your .env file.[/]"
+                )
+            else:
+                self._write_chat(f"[red]Error: {msg}[/]")
+            return
+
         if event.state != WorkerState.SUCCESS:
             return
 
