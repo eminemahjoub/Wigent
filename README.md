@@ -27,7 +27,7 @@ An extensible, multi-provider AI coding agent CLI with memory, safety, sandbox s
 ## Quick Start
 
 ```bash
-git clone <repo>
+git clone https://github.com/eminemahjoub/Wigent.git
 cd wigent
 python3 -m venv venv
 source venv/bin/activate

@@ -27,7 +27,7 @@ This project follows a **no-tolerance for harassment** policy. Be respectful, co
 
 1. **Clone the repository:**
    ```bash
-   git clone git@github.com:your-org/wigent.git
+   git clone https://github.com/eminemahjoub/Wigent.git
    cd wigent
    ```
 
@@ -154,4 +154,4 @@ Include as much context as possible: OS version, Python version, relevant logs, 
 
 ## Questions?
 
-Open a [Discussion](https://github.com/your-org/wigent/discussions) or ping a maintainer.
+Open a [Discussion](https://github.com/eminemahjoub/Wigent/discussions) or ping a maintainer.

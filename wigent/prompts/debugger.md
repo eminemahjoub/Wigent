@@ -97,7 +97,7 @@ Add a comment or test that documents the regression case:
 
 ```python
 # Regression: ensure empty input does not cause KeyError
-# See: https://github.com/org/repo/issues/42
+# See: https://github.com/eminemahjoub/Wigent/issues/42
 ```
 
 ---
