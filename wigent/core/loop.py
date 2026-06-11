@@ -247,6 +247,13 @@ class AgentLoop:
 
     # ── Public API ───────────────────────────────────────────────────
 
+    def _make_config(self, state: dict[str, Any]) -> dict[str, Any]:
+        """Build LangGraph config with thread_id (required by checkpointer)."""
+        return {
+            "configurable": {"thread_id": uuid.uuid4().hex},
+            "recursion_limit": state["max_iterations"] + 10,
+        }
+
     def run(
         self,
         task: str,
@@ -283,7 +290,7 @@ class AgentLoop:
         )
 
         try:
-            final = graph.invoke(state, {"recursion_limit": state["max_iterations"] + 10})
+            final = graph.invoke(state, self._make_config(state))
             self._last_state = final
             logger.info(
                 "AgentLoop done  iterations=%d  total_cost=%.6f  status=%s",
@@ -323,7 +330,7 @@ class AgentLoop:
         self._graph = graph
 
         try:
-            for snapshot in graph.stream(state, {"recursion_limit": state["max_iterations"] + 10}):
+            for snapshot in graph.stream(state, self._make_config(state)):
                 self._last_state = snapshot
                 yield snapshot
         except Exception as exc:
@@ -334,7 +341,7 @@ class AgentLoop:
         state = self._load_checkpoint(checkpoint_path)
         graph = self._build_graph()
         self._graph = graph
-        final = graph.invoke(state, {"recursion_limit": state["max_iterations"] + 10})
+        final = graph.invoke(state, self._make_config(state))
         self._last_state = final
         return final
 
