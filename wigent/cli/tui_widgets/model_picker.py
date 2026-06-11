@@ -113,10 +113,16 @@ class ModelPickerModal(ModalScreen[tuple[str, str] | None]):
         self._model_keys = list(cfg.models)
         for model in cfg.models:
             label = model
+            tags = []
             if ":free" in model:
-                label = f"{model}  [green]FREE[/]"
+                tags.append("[green]FREE[/]")
+                # Most free OpenRouter models lack tool support
+                if cfg.name == "openrouter":
+                    tags.append("[yellow]⚠ no tools[/]")
             elif model == cfg.default_model:
-                label = f"{model}  [cyan]default[/]"
+                tags.append("[cyan]default[/]")
+            if tags:
+                label = f"{model}  {'  '.join(tags)}"
             labels.append(label)
         model_list.add_options(labels)
 

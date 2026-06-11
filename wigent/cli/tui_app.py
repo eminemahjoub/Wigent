@@ -164,6 +164,21 @@ class WigentTUI(App[None]):
                     "[dim]Run [bold]wigent setup[/] to configure a provider, "
                     "or set the API key in your .env file.[/]"
                 )
+            elif "No endpoints found that support tool use" in msg:
+                self._write_chat(
+                    "[bold red]⚠ This model doesn't support tool use on OpenRouter.[/]\n"
+                    "[dim]Free tier models often lack tool support.[/]\n"
+                    "[dim]Try [bold]F2[/] to switch to a tool-capable model:\n"
+                    "  • anthropic/claude-3.5-sonnet\n"
+                    "  • openai/gpt-4o\n"
+                    "  • google/gemini-2.0-flash-exp[/]"
+                )
+            elif "404" in msg and "openrouter" in msg.lower():
+                self._write_chat(
+                    "[bold red]⚠ Model not available (404).[/]\n"
+                    "[dim]This model may be offline or removed from OpenRouter.[/]\n"
+                    "[dim]Press [bold]F2[/] to pick a different model.[/]"
+                )
             else:
                 self._write_chat(f"[red]Error: {msg}[/]")
             return
