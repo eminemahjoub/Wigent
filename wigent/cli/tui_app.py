@@ -16,6 +16,7 @@ Usage
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -65,6 +66,8 @@ class WigentTUI(App[None]):
         super().__init__(**kwargs)
         self._initial_prompt = initial_prompt
         self._agent: Any | None = None
+        self._history_path = os.path.expanduser("~/.wigent/tui_history.json")
+        self._history: list[dict[str, str]] = []
 
     def compose(self) -> ComposeResult:
         """Compose the TUI layout."""
@@ -110,11 +113,15 @@ class WigentTUI(App[None]):
             logger.exception("Failed to initialize agent: %s", exc)
             self._write_chat("[bold red]⚠ Failed to initialize agent. Check config.[/]")
 
-        # Welcome banner
-        self._write_chat(
-            "[bold #58a6ff]🤖 WIGENT[/]  [dim #8b949e]AI Coding Agent — type a message, press[/] "
-            "[bold #58a6ff]F2[/] [dim #8b949e]to pick a model[/]"
-        )
+        # Load previous conversation history
+        self._load_history()
+
+        # Welcome banner (only if no history)
+        if not self._history:
+            self._write_chat(
+                "[bold #58a6ff]🤖 WIGENT[/]  [dim #8b949e]AI Coding Agent — type a message, press[/] "
+                "[bold #58a6ff]F2[/] [dim #8b949e]to pick a model[/]"
+            )
 
         # If an initial prompt was passed, run it
         if self._initial_prompt:
@@ -134,6 +141,7 @@ class WigentTUI(App[None]):
 
     def _submit_message(self, message: str) -> None:
         """Process a user message."""
+        self._history.append({"role": "user", "content": message})
         self._write_chat(f"[bold #3fb950]▶ You[/]  {message}")
 
         if message.startswith("/"):
@@ -223,6 +231,7 @@ class WigentTUI(App[None]):
             result_text = result
 
         if result_text:
+            self._history.append({"role": "assistant", "content": result_text})
             self._write_chat(f"[bold #58a6ff]● Wigent[/]  {result_text}")
         else:
             self._write_chat("[dim #8b949e]● (no response)[/]")
@@ -351,7 +360,37 @@ class WigentTUI(App[None]):
             _on_pick,
         )
 
+    def on_unmount(self) -> None:
+        """Save conversation history on exit."""
+        self._save_history()
+
     # ── Helpers ──────────────────────────────────────────────────
+
+    def _load_history(self) -> None:
+        """Load conversation history from disk."""
+        if not os.path.exists(self._history_path):
+            return
+        try:
+            with open(self._history_path, "r", encoding="utf-8") as f:
+                self._history = json.load(f)
+            for item in self._history[-50:]:  # show last 50
+                role = item.get("role", "")
+                content = item.get("content", "")
+                if role == "user":
+                    self._write_chat(f"[bold #3fb950]▶ You[/]  {content}")
+                elif role == "assistant":
+                    self._write_chat(f"[bold #58a6ff]● Wigent[/]  {content}")
+        except Exception as exc:
+            logger.warning("Failed to load history: %s", exc)
+
+    def _save_history(self) -> None:
+        """Save conversation history to disk."""
+        try:
+            os.makedirs(os.path.dirname(self._history_path), exist_ok=True)
+            with open(self._history_path, "w", encoding="utf-8") as f:
+                json.dump(self._history[-200:], f, indent=2, ensure_ascii=False)
+        except Exception as exc:
+            logger.warning("Failed to save history: %s", exc)
 
     def _write_chat(self, text: str) -> None:
         """Write text to the chat log, rendering code blocks with syntax highlighting."""
