@@ -82,7 +82,8 @@ def run_interactive(agent: Any) -> None:
         mode = agent._mode
 
 
-def main(argv: list[str] | None = None) -> NoReturn:
+def run_classic_cli(argv: list[str] | None = None) -> NoReturn:
+    """Original line-by-line CLI interface (use --classic to invoke)."""
     args = parse_args(argv)
 
     log_level = logging.DEBUG if args.get("debug") else logging.INFO
@@ -137,7 +138,24 @@ def main(argv: list[str] | None = None) -> NoReturn:
     sys.exit(0)
 
 
+def main(argv: list[str] | None = None) -> None:
+    """Main entry point — launches TUI by default, --classic for old CLI."""
+    if argv is None:
+        argv = sys.argv[1:]
+
+    # Route --classic to the original CLI
+    if "--classic" in argv:
+        argv.remove("--classic")
+        run_classic_cli(argv)
+        return
+
+    # Default: launch Textual TUI
+    from wigent.cli.tui_app import WigentTUI
+    app = WigentTUI()
+    app.run()
+
+
 if __name__ == "__main__":
     main()
 
-__all__ = ["main", "display_workspace_banner"]
+__all__ = ["main", "display_workspace_banner", "run_classic_cli"]

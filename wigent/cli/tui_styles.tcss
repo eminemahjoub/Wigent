@@ -1,0 +1,107 @@
+/* ════════════════════════════════════════
+   wigent — TUI Styles
+   Role: TCSS styles for the Textual TUI
+   Author: wigent team
+   ════════════════════════════════════════ */
+
+Screen {
+    background: $surface-darken-1;
+    color: $text;
+}
+
+Header {
+    background: $primary;
+    color: $text;
+    height: 3;
+    text-style: bold;
+}
+
+Footer {
+    background: $primary-darken-1;
+    color: $text;
+}
+
+#main-container {
+    height: 1fr;
+    layout: horizontal;
+}
+
+#sidebar {
+    width: 25%;
+    min-width: 20;
+    max-width: 40;
+    background: $surface-darken-1;
+    border-right: solid $primary;
+    display: block;
+}
+
+#sidebar.collapsed {
+    display: none;
+}
+
+#content {
+    width: 1fr;
+    layout: vertical;
+}
+
+#chat-panel {
+    height: 1fr;
+    padding: 0 1;
+}
+
+#chat-log {
+    width: 100%;
+    height: 100%;
+    background: $surface;
+    border: solid $primary-darken-2;
+    padding: 0 1;
+}
+
+#input-panel {
+    height: auto;
+    max-height: 5;
+    padding: 0 1 1 1;
+}
+
+#user-input {
+    width: 100%;
+    border: solid $accent;
+    background: $surface-lighten-1;
+}
+
+#user-input:focus {
+    border: solid $accent-lighten-1;
+}
+
+.panel-title {
+    text-style: bold;
+    color: $accent;
+    height: 1;
+    padding: 0 1;
+}
+
+/* Mode-specific styling */
+.mode-orchestrator { color: $primary; }
+.mode-architect    { color: $secondary; }
+.mode-coder        { color: $accent; }
+.mode-debugger     { color: $warning; }
+.mode-reviewer     { color: $success; }
+
+/* User / Agent message colors in chat */
+.user-message {
+    color: $text;
+    text-style: bold;
+}
+
+.agent-message {
+    color: $text;
+}
+
+.thinking-message {
+    color: $text-muted;
+    text-style: italic;
+}
+
+.error-message {
+    color: $error;
+}

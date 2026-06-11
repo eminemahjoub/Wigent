@@ -64,6 +64,12 @@ from click.exceptions import Exit as ClickExit
     default=False,
     help="Auto-approve all actions.",
 )
+@click.option(
+    "--classic",
+    is_flag=True,
+    default=False,
+    help="Use classic line-by-line CLI instead of TUI.",
+)
 def cli_main(
     prompt: str | None,
     provider: str | None,
@@ -74,6 +80,7 @@ def cli_main(
     no_banner: bool,
     debug: bool,
     yes: bool,
+    classic: bool,
 ) -> dict[str, Any]:
     """Parse CLI arguments and return a config dict."""
     return {
@@ -86,6 +93,7 @@ def cli_main(
         "no_banner": no_banner,
         "debug": debug,
         "yes": yes,
+        "classic": classic,
         "version": "1.0.0",
     }
 
