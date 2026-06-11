@@ -1,16 +1,32 @@
 #!/usr/bin/env bash
-set -euo pipefail
+# Wigent Uninstaller
+set -e
 
-INSTALL_DIR="${HOME}/.wigent"
+echo ""
+echo "🗑  Wigent Uninstaller"
+echo ""
+read -p "Remove Wigent? (y/N): " -n 1 -r
+echo
 
-if [ -d "${INSTALL_DIR}" ]; then
-    echo "==> Removing ${INSTALL_DIR} ..."
-    rm -rf "${INSTALL_DIR}"
+if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    echo "Cancelled."
+    exit 0
 fi
 
-if [ -L "${HOME}/.local/bin/wigent" ]; then
-    echo "==> Removing symlink ~/.local/bin/wigent ..."
-    rm -f "${HOME}/.local/bin/wigent"
+# Remove from pipx
+if command -v pipx &> /dev/null; then
+    if pipx list 2>/dev/null | grep -q "wigent"; then
+        pipx uninstall wigent
+        echo "✓ Removed from pipx"
+    fi
 fi
 
-echo "Wigent uninstalled successfully."
+# Remove install dir
+if [ -d "$HOME/.wigent" ]; then
+    rm -rf "$HOME/.wigent"
+    echo "✓ Removed ~/.wigent"
+fi
+
+echo ""
+echo "✅ Wigent uninstalled!"
+echo ""
