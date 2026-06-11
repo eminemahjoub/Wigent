@@ -20,10 +20,10 @@ import logging
 import os
 from typing import Any
 
-from textual.app import App, ComposeResult
+from textual.app import App, ComposeResult, on
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.reactive import on, reactive
+from textual.reactive import reactive
 from textual.widgets import Footer, Header, Input, Label, RichLog
 from textual.worker import Worker, WorkerState
 
