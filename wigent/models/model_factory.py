@@ -36,6 +36,7 @@ from wigent.models.anthropic_model import AnthropicModel
 from wigent.models.gemini_model import GeminiModel
 from wigent.models.groq_model import GroqModel
 from wigent.models.litellm_proxy import LiteLLMProxy
+from wigent.models.openrouter_model import OpenRouterModel
 from wigent.models.ollama_model import OllamaModel
 from wigent.models.openai_model import OpenAIModel
 
@@ -49,6 +50,7 @@ PROVIDER_CLASSES: dict[str, type[BaseModel]] = {
     "gemini": GeminiModel,
     "groq": GroqModel,
     "ollama": OllamaModel,
+    "openrouter": OpenRouterModel,
     "litellm": LiteLLMProxy,
 }
 
