@@ -10,5 +10,6 @@
 from wigent.cli.tui_widgets.status_bar import StatusBar
 from wigent.cli.tui_widgets.file_tree import WigentFileTree
 from wigent.cli.tui_widgets.help_modal import HelpModal
+from wigent.cli.tui_widgets.model_picker import ModelPickerModal
 
-__all__ = ["StatusBar", "WigentFileTree", "HelpModal"]
+__all__ = ["StatusBar", "WigentFileTree", "HelpModal", "ModelPickerModal"]

@@ -29,6 +29,7 @@ from textual.worker import Worker, WorkerState
 
 from wigent.cli.tui_widgets.file_tree import WigentFileTree
 from wigent.cli.tui_widgets.help_modal import HelpModal
+from wigent.cli.tui_widgets.model_picker import ModelPickerModal
 from wigent.cli.tui_widgets.status_bar import StatusBar
 
 logger = logging.getLogger(__name__)
@@ -256,8 +257,26 @@ class WigentTUI(App[None]):
         self.query_one("#user-input", Input).focus()
 
     def action_settings(self) -> None:
-        """Placeholder for settings action."""
-        self._write_chat("[dim]Settings panel coming soon.[/]")
+        """Open model/provider picker."""
+        def _on_pick(result: tuple[str, str] | None) -> None:
+            if result is None:
+                return
+            provider, model = result
+            try:
+                if self._agent is not None:
+                    self._agent.set_model(provider, model)
+                    self.current_model = model
+                    self._write_chat(f"[green]Switched to {provider} / {model}[/]")
+            except Exception as exc:
+                self._write_chat(f"[red]Failed to switch: {exc}[/]")
+
+        self.push_screen(
+            ModelPickerModal(
+                current_provider=self._agent._provider if self._agent else "",
+                current_model=self._agent._model_name if self._agent else "",
+            ),
+            _on_pick,
+        )
 
     # ── Helpers ──────────────────────────────────────────────────
 
