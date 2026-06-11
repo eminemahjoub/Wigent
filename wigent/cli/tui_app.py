@@ -60,7 +60,6 @@ class WigentTUI(App[None]):
         super().__init__(**kwargs)
         self._initial_prompt = initial_prompt
         self._agent: Any | None = None
-        self._pending_thinking_line: int | None = None
 
     def compose(self) -> ComposeResult:
         """Compose the TUI layout."""
@@ -144,12 +143,7 @@ class WigentTUI(App[None]):
             self._write_chat("[red]Agent not initialized.[/]")
             return
 
-        # Show thinking indicator
-        chat_log = self.query_one("#chat-log", RichLog)
-        self._pending_thinking_line = chat_log.line_count
         self._write_chat("[dim italic]🤖 Wigent is thinking...[/]")
-
-        # Run agent in a worker thread
         self.run_worker(self._agent.run, thread=True, kwargs={"task": message})
 
     @on(Worker.StateChanged)
@@ -161,12 +155,6 @@ class WigentTUI(App[None]):
         result = event.worker.result
         if result is None:
             return
-
-        # Remove thinking line if present
-        if self._pending_thinking_line is not None:
-            # RichLog doesn't support removing lines directly;
-            # we just overwrite by writing the response below.
-            self._pending_thinking_line = None
 
         # Extract result text
         result_text = ""
@@ -180,7 +168,6 @@ class WigentTUI(App[None]):
         else:
             self._write_chat("[dim](no response)[/]")
 
-        # Update status bar from agent state
         self._update_status_from_agent()
 
     # ── Commands ───────────────────────────────────────────────
