@@ -12,6 +12,7 @@ Supported providers:
     - Anthropic (Claude Sonnet 4, Claude 3.5 Sonnet/Haiku, Opus 4)
     - Gemini    (Gemini 2.5 Pro, 2.5 Flash, 2.0 Flash)
     - Groq      (Llama 3.3, Mixtral, DeepSeek R1)
+    - OpenRouter(300+ models: Claude, GPT-4, Gemini, Llama, Qwen, etc.)
     - Ollama    (Llama 3.1, CodeLlama, Qwen 2.5 Coder, local)
     - LiteLLM   (Universal proxy for 100+ models)
 
@@ -49,6 +50,7 @@ from wigent.models.anthropic_model import AnthropicModel
 from wigent.models.gemini_model import GeminiModel
 from wigent.models.groq_model import GroqModel
 from wigent.models.litellm_proxy import LiteLLMProxy
+from wigent.models.openrouter_model import OpenRouterModel
 from wigent.models.ollama_model import OllamaModel
 from wigent.models.openai_model import OpenAIModel
 
@@ -73,6 +75,7 @@ __all__ = [
     "GroqModel",
     "OllamaModel",
     "LiteLLMProxy",
+    "OpenRouterModel",
     # Factory
     "ModelFactory",
     "factory",
