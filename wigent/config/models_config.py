@@ -128,6 +128,24 @@ GROQ: Final[ProviderConfig] = ProviderConfig(
     docs_url="https://console.groq.com/docs",
 )
 
+# ── OpenRouter ───────────────────────────────────────────────────────
+
+OPENROUTER: Final[ProviderConfig] = ProviderConfig(
+    name="openrouter",
+    emoji="🌐",
+    models=(
+        "anthropic/claude-3.5-sonnet",
+        "openai/gpt-4o",
+        "google/gemini-2.0-flash-exp",
+        "qwen/qwen-2.5-coder-32b-instruct",
+        "meta-llama/llama-3.2-3b-instruct:free",
+    ),
+    default_model="anthropic/claude-3.5-sonnet",
+    max_context_window=200_000,
+    env_key="OPENROUTER_API_KEY",
+    docs_url="https://openrouter.ai/docs",
+)
+
 # ── Ollama (local) ───────────────────────────────────────────────────────
 
 OLLAMA: Final[ProviderConfig] = ProviderConfig(
@@ -218,6 +236,7 @@ PROVIDER_CONFIGS: Final[dict[str, ProviderConfig]] = {
     "gemini": GEMINI,
     "groq": GROQ,
     "ollama": OLLAMA,
+    "openrouter": OPENROUTER,
     "mistral": MISTRAL,
     "cohere": COHERE,
     "litellm": LITELLM,
@@ -259,6 +278,7 @@ __all__ = [
     "GEMINI",
     "GROQ",
     "OLLAMA",
+    "OPENROUTER",
     "MISTRAL",
     "COHERE",
     "LITELLM",
