@@ -72,6 +72,15 @@ PROVIDERS = {
         "default_model": "llama-3.3-70b-versatile",
         "icon": "🌐",
     },
+    "6": {
+        "name": "OpenRouter (300+ models)",
+        "key": "openrouter",
+        "description": "Claude, GPT-4, Llama, Qwen — ONE key, FREE tier",
+        "needs_key": True,
+        "env_var": "OPENROUTER_API_KEY",
+        "default_model": "anthropic/claude-3.5-sonnet",
+        "icon": "🌐",
+    },
 }
 
 SMALL_MODELS = [
@@ -414,6 +423,7 @@ def setup_cloud(provider_key: str) -> None:
         "anthropic": "https://console.anthropic.com/settings/keys",
         "gemini": "https://aistudio.google.com/app/apikey",
         "groq": "https://console.groq.com/keys",
+        "openrouter": "https://openrouter.ai/keys",
     }
     console.print(f"       Get key: [blue]{links.get(provider_key, '')}[/blue]")
     console.print()
@@ -432,6 +442,56 @@ def setup_cloud(provider_key: str) -> None:
     )
 
     _print_done(info["name"], provider_key, info["default_model"])
+
+
+# ── OpenRouter Flow ───────────────────────────────────────
+def setup_openrouter() -> None:
+    _header("Configure OpenRouter", "Step 2/3")
+
+    console.print()
+    info_panel = Panel(
+        "[bold cyan]OpenRouter[/bold cyan] — 300+ models with ONE key\n\n"
+        "[bold]Premium models[/bold]\n"
+        "  • anthropic/claude-3.5-sonnet  (best coding)\n"
+        "  • openai/gpt-4o                 (general purpose)\n"
+        "  • google/gemini-2.0-flash-exp  (1M context)\n"
+        "  • qwen/qwen-2.5-coder-32b      (coding specialist)\n\n"
+        "[bold green]FREE models (no payment needed)[/bold green]\n"
+        "  • meta-llama/llama-3.2-3b-instruct:free\n"
+        "  • google/gemma-2-9b-it:free\n"
+        "  • mistralai/mistral-7b-instruct:free\n"
+        "  • qwen/qwen-2.5-7b-instruct:free\n\n"
+        "Get your FREE key: [blue]https://openrouter.ai/keys[/blue]",
+        border_style="cyan",
+        padding=(1, 2),
+    )
+    console.print(info_panel)
+    console.print()
+
+    env_var = "OPENROUTER_API_KEY"
+    current_key = os.environ.get(env_var, "")
+
+    if current_key:
+        _ok(f"{env_var} found in environment")
+        if Confirm.ask("  ▸  Use existing key?", default=True):
+            write_env_config(provider_key="openrouter", model="anthropic/claude-3.5-sonnet")
+            _print_done("OpenRouter", "openrouter", "anthropic/claude-3.5-sonnet")
+            return
+
+    api_key = Prompt.ask("  ▸  Paste OpenRouter API key", password=True)
+
+    if not api_key.strip():
+        _err("No key provided — setup cancelled")
+        return
+
+    os.environ[env_var] = api_key
+    write_env_config(
+        provider_key="openrouter",
+        model="anthropic/claude-3.5-sonnet",
+        api_key=f"{env_var}={api_key}",
+    )
+
+    _print_done("OpenRouter", "openrouter", "anthropic/claude-3.5-sonnet")
 
 
 # ── Done Screen ─────────────────────────────────────────────
@@ -455,6 +515,8 @@ def main() -> None:
 
     if provider_key == "ollama":
         setup_ollama()
+    elif provider_key == "openrouter":
+        setup_openrouter()
     else:
         setup_cloud(provider_key)
 
