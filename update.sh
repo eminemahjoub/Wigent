@@ -1,17 +1,28 @@
 #!/usr/bin/env bash
-set -euo pipefail
+# Wigent Updater
+set -e
 
-INSTALL_DIR="${HOME}/.wigent"
+echo ""
+echo "🔄 Updating Wigent..."
+echo ""
 
-if [ ! -d "${INSTALL_DIR}" ]; then
-    echo "Wigent is not installed. Run install.sh first."
+WIGENT_DIR="$HOME/.wigent"
+
+if [ ! -d "$WIGENT_DIR" ]; then
+    echo "❌ Wigent not installed"
+    echo "Run install.sh first"
     exit 1
 fi
 
-echo "==> Pulling latest changes ..."
-git -C "${INSTALL_DIR}" pull --ff-only
+# Pull latest
+cd "$WIGENT_DIR"
+git pull
 
-echo "==> Updating dependencies ..."
-"${INSTALL_DIR}/venv/bin/pip" install --quiet --upgrade -e "${INSTALL_DIR}[dev]"
+# Reinstall with pipx
+pipx reinstall wigent 2>/dev/null || pipx install -e . --force
 
-echo "Wigent updated successfully."
+# Show version
+VERSION=$(wigent --version 2>/dev/null || echo "unknown")
+echo ""
+echo "✅ Updated to: $VERSION"
+echo ""
