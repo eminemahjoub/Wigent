@@ -107,9 +107,20 @@ setup_repo() {
     log_info "Setting up Wigent repository..."
     
     if [ -d "$WIGENT_INSTALL_DIR" ]; then
-        log_warning "Existing installation found"
-        cd "$WIGENT_INSTALL_DIR"
-        git pull --quiet 2>/dev/null || true
+        if [ -d "$WIGENT_INSTALL_DIR/.git" ]; then
+            log_warning "Existing installation found, pulling updates..."
+            cd "$WIGENT_INSTALL_DIR"
+            git pull --quiet 2>/dev/null || true
+        else
+            log_warning "Stale directory found (not a git repo), replacing..."
+            # Preserve history and .env across re-install
+            [ -f "$WIGENT_INSTALL_DIR/history" ] && cp "$WIGENT_INSTALL_DIR/history" /tmp/.wigent_history_backup 2>/dev/null || true
+            [ -f "$WIGENT_INSTALL_DIR/.env" ] && cp "$WIGENT_INSTALL_DIR/.env" /tmp/.wigent_env_backup 2>/dev/null || true
+            rm -rf "$WIGENT_INSTALL_DIR"
+            git clone --depth 1 "$WIGENT_REPO" "$WIGENT_INSTALL_DIR" --quiet
+            [ -f /tmp/.wigent_history_backup ] && mv /tmp/.wigent_history_backup "$WIGENT_INSTALL_DIR/history" || true
+            [ -f /tmp/.wigent_env_backup ] && mv /tmp/.wigent_env_backup "$WIGENT_INSTALL_DIR/.env" || true
+        fi
     else
         git clone --depth 1 "$WIGENT_REPO" "$WIGENT_INSTALL_DIR" --quiet
     fi
