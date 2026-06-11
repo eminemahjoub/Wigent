@@ -161,16 +161,26 @@ class WigentTUI(App[None]):
         self._write_chat("[dim #8b949e]● 🤖 Wigent is thinking...[/]")
 
         def _do_run() -> Any:
-            return self._agent.run(task=message)
+            try:
+                return self._agent.run(task=message)
+            except Exception as exc:
+                return {"_error": str(exc)}
 
         self.run_worker(_do_run, thread=True)
 
     @on(Worker.StateChanged)
     def _on_worker_state_changed(self, event: Worker.StateChanged) -> None:
-        """Handle background worker completion or error."""
-        if event.state == WorkerState.ERROR:
-            error = event.worker.error
-            msg = str(error) if error else "Unknown error"
+        """Handle background worker completion."""
+        if event.state != WorkerState.SUCCESS:
+            return
+
+        result = event.worker.result
+        if result is None:
+            return
+
+        # Check for error result from worker
+        if isinstance(result, dict) and "_error" in result:
+            msg = result["_error"]
             if "Missing credentials" in msg or "api_key" in msg.lower():
                 self._write_chat(
                     "[bold #f85149]╭─ Error ─────────────────[/]\n"
@@ -202,13 +212,6 @@ class WigentTUI(App[None]):
                     f"[bold #f85149]│[/]  {msg}\n"
                     f"[bold #f85149]╰─────────────────────────[/]"
                 )
-            return
-
-        if event.state != WorkerState.SUCCESS:
-            return
-
-        result = event.worker.result
-        if result is None:
             return
 
         # Extract result text
