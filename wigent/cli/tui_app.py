@@ -273,10 +273,43 @@ class WigentTUI(App[None]):
 
     def action_settings(self) -> None:
         """Open model/provider picker."""
-        def _on_pick(result: tuple[str, str] | None) -> None:
+        def _on_pick(result: tuple[str, str, str | None] | None) -> None:
             if result is None:
                 return
-            provider, model = result
+            provider, model, api_key = result
+
+            # Save API key to .env if provided
+            if api_key:
+                try:
+                    from wigent.config.models_config import PROVIDER_CONFIGS
+                    cfg = PROVIDER_CONFIGS.get(provider)
+                    env_key = cfg.env_key if cfg and cfg.env_key else f"{provider.upper()}_API_KEY"
+
+                    env_path = os.path.expanduser("~/.wigent/.env")
+                    lines = []
+                    if os.path.exists(env_path):
+                        with open(env_path, "r") as f:
+                            lines = f.readlines()
+
+                    # Update or append the key
+                    key_line = f"{env_key}={api_key}\n"
+                    found = False
+                    for i, line in enumerate(lines):
+                        if line.startswith(f"{env_key}="):
+                            lines[i] = key_line
+                            found = True
+                            break
+                    if not found:
+                        lines.append(key_line)
+
+                    with open(env_path, "w") as f:
+                        f.writelines(lines)
+
+                    os.environ[env_key] = api_key
+                    self._write_chat(f"[green]Saved {env_key} to ~/.wigent/.env[/]")
+                except Exception as exc:
+                    self._write_chat(f"[yellow]Warning: couldn't save key: {exc}[/]")
+
             try:
                 if self._agent is not None:
                     self._agent.set_model(provider, model)

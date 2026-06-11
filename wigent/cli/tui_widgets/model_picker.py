@@ -1,6 +1,6 @@
 # ════════════════════════════════════════
 # wigent — Model Picker Modal
-# Role: Choose provider and model from within TUI
+# Role: Choose provider, model, and enter API key from within TUI
 # Author: wigent team
 # Version: 0.1.0
 # ════════════════════════════════════════
@@ -9,23 +9,28 @@
 
 from __future__ import annotations
 
+import os
+
 from textual.screen import ModalScreen
-from textual.widgets import OptionList, Button, Static
+from textual.widgets import OptionList, Button, Static, Input, Label
 from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 
 from wigent.config.models_config import PROVIDER_CONFIGS
 
 
-class ModelPickerModal(ModalScreen[tuple[str, str] | None]):
-    """Modal to pick provider and model. Returns (provider, model) or None."""
+class ModelPickerModal(ModalScreen[tuple[str, str, str | None] | None]):
+    """Modal to pick provider, model, and optionally API key.
+
+    Returns (provider, model, api_key_or_none) or None on cancel.
+    """
 
     DEFAULT_CSS = """
     ModelPickerModal {
         align: center middle;
     }
     #picker-container {
-        width: 80;
+        width: 90;
         height: auto;
         max-height: 90%;
         background: $surface;
@@ -49,6 +54,19 @@ class ModelPickerModal(ModalScreen[tuple[str, str] | None]):
     #model-list {
         width: 65%;
         border: solid $primary-darken-1;
+    }
+    #api-key-section {
+        height: auto;
+        margin-top: 1;
+        border: solid $primary-darken-2;
+        padding: 1;
+    }
+    #api-key-label {
+        height: 1;
+        color: $text-muted;
+    }
+    #api-key-input {
+        height: 1;
     }
     #picker-footer {
         height: auto;
@@ -84,6 +102,10 @@ class ModelPickerModal(ModalScreen[tuple[str, str] | None]):
                 yield OptionList(*provider_labels, id="provider-list")
                 yield OptionList(id="model-list")
 
+            with Vertical(id="api-key-section"):
+                yield Label("API Key (leave blank to use existing):", id="api-key-label")
+                yield Input(placeholder="sk-...", password=True, id="api-key-input")
+
             with Horizontal(id="picker-footer"):
                 yield Button("Select", variant="success", id="select-btn")
                 yield Button("Cancel", variant="default", id="cancel-btn")
@@ -95,12 +117,28 @@ class ModelPickerModal(ModalScreen[tuple[str, str] | None]):
         except ValueError:
             pass
         self._refresh_models()
+        self._update_api_key_label()
+
+    def _get_env_key(self, provider: str) -> str:
+        cfg = PROVIDER_CONFIGS.get(provider)
+        if cfg and cfg.env_key:
+            return cfg.env_key
+        return f"{provider.upper()}_API_KEY"
+
+    def _update_api_key_label(self) -> None:
+        """Update API key label to show which env var is used."""
+        env_key = self._get_env_key(self.selected_provider)
+        existing = os.environ.get(env_key, "")
+        label = self.query_one("#api-key-label", Label)
+        if existing:
+            label.update(f"API Key ([green]set via {env_key}[/]) — type to override:")
+        else:
+            label.update(f"API Key ([red]missing {env_key}[/]) — enter below:")
 
     def _refresh_models(self) -> None:
         try:
             model_list = self.query_one("#model-list", OptionList)
         except Exception:
-            # Widget not yet mounted (called from __init__ via reactive watcher)
             return
 
         model_list.clear_options()
@@ -116,7 +154,6 @@ class ModelPickerModal(ModalScreen[tuple[str, str] | None]):
             tags = []
             if ":free" in model:
                 tags.append("[green]FREE[/]")
-                # Most free OpenRouter models lack tool support
                 if cfg.name == "openrouter":
                     tags.append("[yellow]⚠ no tools[/]")
             elif model == cfg.default_model:
@@ -126,7 +163,6 @@ class ModelPickerModal(ModalScreen[tuple[str, str] | None]):
             labels.append(label)
         model_list.add_options(labels)
 
-        # Highlight current model
         if self._current_provider == self.selected_provider:
             try:
                 idx = self._model_keys.index(self._current_model)
@@ -136,13 +172,19 @@ class ModelPickerModal(ModalScreen[tuple[str, str] | None]):
 
     def watch_selected_provider(self, provider: str) -> None:
         self._refresh_models()
+        try:
+            self._update_api_key_label()
+        except Exception:
+            pass
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         if event.option_list.id == "provider-list":
             self.selected_provider = self._providers[event.option_index]
         elif event.option_list.id == "model-list":
             model = self._model_keys[event.option_index]
-            self.dismiss((self.selected_provider, model))
+            api_input = self.query_one("#api-key-input", Input)
+            api_key = api_input.value.strip() or None
+            self.dismiss((self.selected_provider, model, api_key))
 
     def on_option_list_option_highlighted(self, event: OptionList.OptionHighlighted) -> None:
         if event.option_list.id == "provider-list":
@@ -153,7 +195,9 @@ class ModelPickerModal(ModalScreen[tuple[str, str] | None]):
             model_list = self.query_one("#model-list", OptionList)
             idx = model_list.highlighted
             if idx is not None and 0 <= idx < len(self._model_keys):
-                self.dismiss((self.selected_provider, self._model_keys[idx]))
+                api_input = self.query_one("#api-key-input", Input)
+                api_key = api_input.value.strip() or None
+                self.dismiss((self.selected_provider, self._model_keys[idx], api_key))
             else:
                 self.dismiss(None)
         elif event.button.id == "cancel-btn":
