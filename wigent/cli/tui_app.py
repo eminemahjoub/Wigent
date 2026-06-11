@@ -119,8 +119,18 @@ class WigentTUI(App[None]):
         # Welcome banner (only if no history)
         if not self._history:
             self._write_chat(
-                "[bold #58a6ff]🤖 WIGENT[/]  [dim #8b949e]AI Coding Agent — type a message, press[/] "
-                "[bold #58a6ff]F2[/] [dim #8b949e]to pick a model[/]"
+                "[bold #58a6ff]╔════════════════════════════════════════════════╗[/]\n"
+                "[bold #58a6ff]║                                                ║[/]\n"
+                "[bold #58a6ff]║[/]  [bold #f0f6fc]██╗    ██╗██╗ ██████╗ ███████╗███╗  ██╗[/]  [bold #58a6ff]║[/]\n"
+                "[bold #58a6ff]║[/]  [bold #f0f6fc]██║    ██║██║██╔════╝ ██╔════╝████╗ ██╔╝[/]  [bold #58a6ff]║[/]\n"
+                "[bold #58a6ff]║[/]  [bold #f0f6fc]██║ █╗ ██║██║██║  ███╗█████╗  ██╔██╗██║ [/]  [bold #58a6ff]║[/]\n"
+                "[bold #58a6ff]║[/]  [bold #f0f6fc]╚███╔███╔╝██║╚██████╔╝███████╗██║ ╚███╗ [/]  [bold #58a6ff]║[/]\n"
+                "[bold #58a6ff]║[/]  [bold #f0f6fc] ╚══╝╚══╝ ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚══╝ [/]  [bold #58a6ff]║[/]\n"
+                "[bold #58a6ff]║                                                ║[/]\n"
+                "[bold #58a6ff]║[/]          [dim #8b949e]AI Coding Agent — type a message[/]          [bold #58a6ff]║[/]\n"
+                "[bold #58a6ff]║                                                ║[/]\n"
+                "[bold #58a6ff]╚════════════════════════════════════════════════╝[/]\n"
+                "[dim #8b949e]Press[/] [bold #58a6ff]F2[/] [dim #8b949e]to pick a model,[/] [bold #58a6ff]F1[/] [dim #8b949e]for help[/]"
             )
 
         # If an initial prompt was passed, run it
