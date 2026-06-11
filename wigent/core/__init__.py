@@ -27,6 +27,7 @@ from wigent.core.orchestrator import Orchestrator
 from wigent.core.planner import ArchitectAgent
 from wigent.core.executor import CoderAgent
 from wigent.core.debugger import DebuggerAgent
+from wigent.core.skill_router import Skill, SkillRouter
 
 __all__ = [
     "WigentAgent",
@@ -39,4 +40,6 @@ __all__ = [
     "ArchitectAgent",
     "CoderAgent",
     "DebuggerAgent",
+    "Skill",
+    "SkillRouter",
 ]
