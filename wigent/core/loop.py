@@ -330,7 +330,9 @@ class AgentLoop:
         self._graph = graph
 
         try:
-            for snapshot in graph.stream(state, self._make_config(state)):
+            for item in graph.stream(state, self._make_config(state), stream_mode="values"):
+                # stream_mode="values" should yield state dicts directly
+                snapshot = item if isinstance(item, dict) else item[1] if isinstance(item, tuple) else {}
                 self._last_state = snapshot
                 yield snapshot
         except Exception as exc:

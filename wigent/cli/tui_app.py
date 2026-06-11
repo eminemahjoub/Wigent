@@ -148,14 +148,41 @@ class WigentTUI(App[None]):
             return
 
         self._write_chat("[dim #8b949e]● 🤖 Wigent is thinking...[/]")
+        self._stream_steps: list[str] = []
+
+        def _on_step(status: str, snapshot: Any) -> None:
+            step_label = self._step_label(status, snapshot)
+            if step_label and step_label not in self._stream_steps:
+                self._stream_steps.append(step_label)
+                self.call_from_thread(self._write_chat, f"  [dim #8b949e]→ {step_label}[/]")
 
         def _do_run() -> Any:
             try:
-                return self._agent.run(task=message)
+                return self._agent.run_streaming(
+                    task=message,
+                    on_step=_on_step,
+                )
             except Exception as exc:
                 return {"_error": str(exc)}
 
         self.run_worker(_do_run, thread=True)
+
+    def _step_label(self, status: str, snapshot: Any) -> str | None:
+        """Build a human-readable step label from agent state."""
+        labels = {
+            "thinking": "thinking...",
+            "acting": "using tools...",
+            "observing": "processing results...",
+            "done": "finishing up...",
+        }
+        # Show latest tool call if available
+        if isinstance(snapshot, dict):
+            tool_calls = snapshot.get("tool_calls_made", [])
+            if tool_calls and status == "acting":
+                last_tool = tool_calls[-1]
+                tool_name = last_tool.get("tool", "tool") if isinstance(last_tool, dict) else "tool"
+                return f"using tool: {tool_name}"
+        return labels.get(status)
 
     @on(Worker.StateChanged)
     def _on_worker_state_changed(self, event: Worker.StateChanged) -> None:

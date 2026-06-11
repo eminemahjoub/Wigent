@@ -34,7 +34,7 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 from wigent.config import settings
 from wigent.config.modes import MODES, get_mode
@@ -175,6 +175,95 @@ class WigentAgent:
             self.messages.append({"role": "assistant", "content": result_text})
 
         return self.state
+
+    def run_streaming(
+        self,
+        task: str,
+        on_step: Callable[[str, Any], None],
+        mode: str | None = None,
+        max_iterations: int | None = None,
+    ) -> AgentState:
+        """Run the agent loop with real-time progress callbacks.
+
+        Args:
+            task: The user's goal.
+            on_step: Callback receiving (status_label, state_snapshot).
+            mode: Agent mode override.
+            max_iterations: Cap on loop iterations.
+
+        Returns:
+            Final AgentState.
+        """
+        resolved_mode = self._resolve_mode(task, mode)
+        self._session_started = datetime.now(timezone.utc).isoformat()
+
+        session = self._memory.sessions.create_session(
+            name=None,
+            description=f"{resolved_mode}: {task[:80]}",
+            tags=[resolved_mode],
+        )
+        self._current_session_id = session.session_id
+        self._memory.context.add_message("user", task)
+
+        model = model_factory.get_model(
+            provider=self._provider,
+            model_name=self._model_name,
+        )
+
+        self._loop = AgentLoop(
+            model=model,
+            mode=resolved_mode,
+            enable_checkpoints=self._enable_checkpoints,
+        )
+
+        final_state: AgentState | None = None
+        try:
+            for snapshot in self._loop.stream(
+                task=task,
+                mode=resolved_mode,
+                max_iterations=max_iterations,
+            ):
+                final_state = snapshot
+                status = snapshot.get("status", "working")
+                on_step(status, snapshot)
+        except Exception as exc:
+            logger.exception("Streaming run failed: %s", exc)
+            if final_state is None:
+                final_state = AgentState(
+                    task=task,
+                    messages=[],
+                    current_mode=resolved_mode,
+                    iteration=0,
+                    max_iterations=max_iterations or 10,
+                    tool_calls_made=[],
+                    files_modified=[],
+                    errors_encountered=[],
+                    status="error",
+                    result=f"Streaming run failed: {exc}",
+                    token_usage={"prompt": 0, "completion": 0, "total": 0},
+                    total_cost=0.0,
+                    cycle_signatures=[""],
+                    session_id="",
+                    started_at=None,
+                    last_step_duration=0.0,
+                    checkpoints=[],
+                )
+
+        self.state = final_state
+
+        session.total_tokens = final_state.get("token_usage", {}).get("total", 0)
+        session.total_cost = final_state.get("total_cost", 0.0)
+        session.files_modified = final_state.get("files_modified", [])
+        session.mode_history.append(resolved_mode)
+        self._memory.sessions.save_session(session)
+
+        result_text = final_state.get("result") or ""
+        self._memory.context.add_message("assistant", result_text)
+        self.messages.append({"role": "user", "content": task})
+        if result_text:
+            self.messages.append({"role": "assistant", "content": result_text})
+
+        return final_state
 
     def chat(self, message: str) -> str:
         """Send a single message in conversational mode.
