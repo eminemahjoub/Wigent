@@ -144,7 +144,11 @@ class WigentTUI(App[None]):
             return
 
         self._write_chat("[dim italic]🤖 Wigent is thinking...[/]")
-        self.run_worker(self._agent.run, thread=True, kwargs={"task": message})
+
+        def _do_run() -> Any:
+            return self._agent.run(task=message)
+
+        self.run_worker(_do_run, thread=True)
 
     @on(Worker.StateChanged)
     def _on_worker_state_changed(self, event: Worker.StateChanged) -> None:
