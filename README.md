@@ -24,24 +24,45 @@ An extensible, multi-provider AI coding agent CLI with memory, safety, sandbox s
 
 ---
 
-## Quick Start
+## 🚀 Quick Install (Works Like Kilo!)
 
+### One-line install:
 ```bash
-git clone https://github.com/eminemahjoub/Wigent.git
-cd wigent
-python3 -m venv venv
-source venv/bin/activate
-pip install -e ".[dev]"
+curl -fsSL https://raw.githubusercontent.com/eminemahjoub/Wigent/main/install.sh | bash
+```
 
-# Configure API keys
-cp .env.example .env
-# Edit .env with at least one provider key (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)
-
-# Run a task
-wigent "Refactor the auth module"
-
-# Interactive shell
+### Then use it ANYWHERE:
+```bash
+cd ~/your-project
 wigent
+```
+
+**No venv activation needed!** Works exactly like `kilo`, `npm`, or `git`.
+
+### Update wigent:
+```bash
+curl -fsSL https://raw.githubusercontent.com/eminemahjoub/Wigent/main/update.sh | bash
+```
+
+### Uninstall:
+```bash
+curl -fsSL https://raw.githubusercontent.com/eminemahjoub/Wigent/main/uninstall.sh | bash
+```
+
+### Manual install:
+```bash
+# Install pipx
+sudo apt install pipx
+pipx ensurepath
+
+# Install wigent
+git clone https://github.com/eminemahjoub/Wigent.git
+cd Wigent
+pipx install -e . --force
+
+# Test from anywhere!
+cd ~
+wigent --version
 ```
 
 ---
