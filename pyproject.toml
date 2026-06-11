@@ -1,24 +1,42 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "wigent"
 version = "1.0.0"
-description = "Autonomous AI coding agent with memory, safety, and project awareness"
-license = { text = "MIT" }
-requires-python = ">=3.12"
+description = "AI Coding Agent CLI"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [{name = "Eminemahjoub"}]
+
 dependencies = [
     "openai>=1.0.0",
-    "anthropic>=0.30.0",
-    "google-generativeai>=0.8.0",
-    "groq>=1.0.0",
-    "litellm>=1.0.0",
-    "pydantic>=2.0.0",
-    "pydantic-settings>=2.0.0",
+    "anthropic>=0.18.0",
+    "google-generativeai",
+    "groq",
+    "ollama",
+    "litellm",
     "rich>=13.0.0",
     "click>=8.0.0",
     "prompt-toolkit>=3.0.0",
-    "GitPython>=3.0.0",
-    "langgraph>=1.0.0",
-    "langchain>=1.0.0",
+    "pydantic>=2.0.0",
+    "python-dotenv>=1.0.0",
+    "pyyaml>=6.0",
+    "chromadb>=0.4.0",
+    "sentence-transformers>=2.0.0",
+    "gitpython>=3.1.0",
+    "tiktoken>=0.5.0",
+    "httpx>=0.25.0",
 ]
+
+[project.scripts]
+wigent = "wigent.cli.app:main"
+
+[project.urls]
+Homepage = "https://github.com/eminemahjoub/Wigent"
+Repository = "https://github.com/eminemahjoub/Wigent"
 
 [project.optional-dependencies]
 dev = [
@@ -30,15 +48,9 @@ dev = [
     "pre-commit>=3.0.0",
 ]
 
-[project.scripts]
-wigent = "wigent.cli.app:main"
-
-[build-system]
-requires = ["setuptools>=68.0"]
-build-backend = "setuptools.build_meta"
-
 [tool.setuptools.packages.find]
 include = ["wigent*"]
+exclude = ["tests*", "venv*", "docs*"]
 
 [tool.ruff]
 line-length = 120
