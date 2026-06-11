@@ -123,6 +123,7 @@ _DEFAULT_SKILL_DEFS: list[dict[str, Any]] = [
             "explore options", "divergent thinking", "converge on",
             "refine idea", "what if", "spitball",
         ],
+        "prompt_template": "prompts/ideate.md",
     },
     {
         "name": "spec-driven-development",
