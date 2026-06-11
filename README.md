@@ -2,20 +2,25 @@
 
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-177%20passing-brightgreen)](wigent/tests/)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue)](CHANGELOG.md)
 
-An extensible, multi-provider AI coding agent with memory, safety, and sandbox security.
+An extensible, multi-provider AI coding agent CLI with memory, safety, sandbox security, and a Rich terminal UI.
 
 ---
 
 ## Features
 
-- **Multi-provider LLM support** — OpenAI, Anthropic, Gemini, Groq, Ollama, Mistral, Cohere, LiteLLM
-- **Agent modes** — Orchestrator, Architect, Coder, Debugger, Reviewer
-- **Memory system** — Token-budgeted context, session persistence, checkpoints, vector search
-- **Safety system** — Approval gates, sandbox enforcement, prompt injection detection, audit logging
-- **59+ tools** — File operations, code search, AST analysis, git, bash execution
-- **Human-in-the-loop** — Risk-based approvals with Rich terminal UI
-- **Sandboxed execution** — Path confinement, command classification, env sanitization
+- **Multi-provider LLM** — OpenAI, Anthropic, Gemini, Groq, Ollama, LiteLLM proxy
+- **5 agent modes** — Orchestrator, Architect, Coder, Debugger, Reviewer
+- **Rich CLI** — ASCII banner, syntax-highlighted panels, thinking spinner, progress bars, diff display with risk color coding
+- **17 slash commands** — `/mode`, `/model`, `/clear`, `/save`, `/load`, `/checkpoint`, `/restore`, `/status`, `/history`, `/cost`, `/index`, `/workspace`, `/rules`, `/approve-all`, `/compact`, `/help`, `/exit`
+- **Interactive REPL** — prompt-toolkit with tab completion, history, key bindings
+- **50+ tools** — File I/O, code search, AST analysis, git (read/write), bash execution
+- **Memory system** — Conversation history, vector search, session persistence, checkpoints
+- **Safety system** — 3-layer approval gate (validator → sandbox → user prompt), audit logging
+- **Auto-indexer** — Builds a vector index of the workspace on startup
+- **Lazy imports** — Instant startup, model chain loads only when used
 
 ---
 
@@ -30,19 +35,70 @@ pip install -e ".[dev]"
 
 # Configure API keys
 cp .env.example .env
-# Edit .env with your provider key
+# Edit .env with at least one provider key (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)
 
 # Run a task
-python agent.py "Refactor the auth module"
+wigent "Refactor the auth module"
+
+# Interactive shell
+wigent
 ```
+
+---
+
+## CLI Usage
+
+```bash
+wigent [OPTIONS] [PROMPT]
+
+Options:
+  -p, --provider TEXT      LLM provider (openai, anthropic, gemini, groq,
+                           ollama, litellm, mistral, cohere)
+  -m, --model TEXT         Model name (e.g. gpt-4o, claude-sonnet-4-20250514)
+  --mode TEXT              Agent mode (orchestrator, architect, coder,
+                           debugger, reviewer)
+  -s, --session TEXT       Session name for persistence
+  -w, --workspace TEXT     Workspace directory
+  --no-banner              Skip the ASCII logo on startup
+  -d, --debug              Enable debug logging
+  -y, --yes                Auto-approve all operations
+  --version                Show version
+  --help                   Show this help
+
+Examples:
+  wigent --mode coder "Add input validation"
+  wigent --provider anthropic --model claude-sonnet-4-20250514 "Write tests"
+  wigent --session my-work "Fix the login bug"
+  wigent --no-banner --yes "Run linters across the project"
+```
+
+### Interactive Commands
+
+| Command | Description |
+|---|---|
+| `/mode <name>` | Switch agent mode |
+| `/model <provider>` | Switch LLM provider |
+| `/clear` | Clear conversation history |
+| `/save <name>` | Save session checkpoint |
+| `/load <name>` | Load a saved session |
+| `/checkpoint` | Create a checkpoint |
+| `/restore` | Restore last checkpoint |
+| `/status` | Show current agent state |
+| `/history` | Show conversation history |
+| `/cost` | Show token usage & cost |
+| `/index` | Show workspace index stats |
+| `/workspace` | Show workspace info |
+| `/rules` | Show agent rules |
+| `/approve-all` | Approve all pending operations |
+| `/compact` | Summarize conversation to save tokens |
+| `/help` | Show all commands |
+| `/exit` | Exit the REPL |
 
 ---
 
 ## Configuration
 
-Settings are managed via `.env` file or environment variables. See `.env.example` for all options.
-
-Key settings:
+Settings via `.env` or environment variables. See `.env.example` for all options.
 
 | Variable | Default | Description |
 |---|---|---|
@@ -59,27 +115,35 @@ Key settings:
 
 ```
 wigent/
-├── cli/              # CLI entry point
+├── cli/              # Rich CLI (click, prompt-toolkit, Rich)
+│   ├── app.py        # Entry point, REPL loop
+│   ├── cli_args.py   # Argument parser
+│   ├── commands.py   # 17 slash commands
+│   ├── input_handler.py  # prompt-toolkit REPL
+│   ├── ui_components.py  # 20 Rich render methods
+│   └── diff_display.py   # Diff visualization
 ├── config/           # Settings, modes, model config
-├── core/             # Agent loop, orchestrator, WigentAgent
-├── memory/           # Context, sessions, checkpoints, vector store
+│   └── modes.py      # 5 AgentModeConfig definitions
+├── core/             # Agent loop, orchestrator, workspace
+├── memory/           # Conversation, sessions, checkpoints, vectors
 ├── models/           # Provider wrappers (OpenAI, Anthropic, etc.)
-├── prompts/          # System prompts per mode
-├── safety/           # Approvals, diffs, sandbox, validator
-└── tools/            # 59+ tool implementations
+├── prompts/          # System prompts per mode (8 .md files)
+├── safety/           # Approvals, sandbox, validator
+├── tools/            # 10+ tool modules (50+ schemas)
+└── tests/            # 177 tests across 6 test files + 4 test dirs
 ```
 
 ---
 
-## Phases
+## Agent Modes
 
-| Phase | Tag | What |
-|---|---|---|
-| 1 | `v0.1.0` | Core agent loop, multi-provider, 5 modes |
-| 2 | `v0.2.0` | Tool system: file, search, git, AST, bash |
-| 3 | `v0.3.0` | Orchestrator, mode routing, project loading |
-| 4 | `v0.4.0` | Memory system: context, sessions, checkpoints, vectors |
-| 5 | `v0.5.0` | Safety system: approvals, sandbox, validation, audit |
+| Mode | Emoji | Description | Tools | Max Iterations |
+|---|---|---|---|---|
+| orchestrator | 🧠 | Full autonomy — analyzes, codes, tests | All | 50 |
+| architect | 🏛️ | Planning-only, no code writes | Read + git read | 30 |
+| coder | 💻 | Implementation, tests, fixes | Read/write + git | 40 |
+| debugger | 🔍 | Bug diagnosis, minimal fixes | Read/run + git | 30 |
+| reviewer | 👁️ | Code review, no modifications | Read + git read | 20 |
 
 ---
 
@@ -87,29 +151,39 @@ wigent/
 
 All tool execution passes through a multi-layer safety pipeline:
 
-1. **Input validation** — prompt injection detection, path safety
-2. **Sandbox** — command classification (BLOCKED / WARN / SAFE), path confinement
-3. **Diff viewer** — risk-assessed diffs before file writes
-4. **Approval gate** — [y]es/[n]o/[e]xplain with 60s auto-reject
-5. **Audit log** — append-only JSONL at `.agent/audit.log`
+1. **Input validation** — command blocklist, path safety
+2. **Sandbox** — path confinement to workspace, env sanitization
+3. **Approval gate** — risk-based prompts ([y]es/[n]o/[e]xplain)
+4. **Audit log** — append-only JSONL at `.agent/audit.log`
 
-Set `AUTO_APPROVE=true` in your `.env` to bypass interactive approvals.
+Set `AUTO_APPROVE=true` in `.env` to bypass interactive approvals.
 
 ---
 
 ## Development
 
 ```bash
-# Install dev deps
-pip install -e ".[dev]"
-
-# Run tests
-pytest
-
-# Run specific tests
-pytest wigent/tests/test_safety_smoke.py -v
-pytest wigent/tests/test_memory_integration.py -v
+make install      # Install with dev deps
+make test         # Run all 177 tests
+make lint         # ruff check
+make format       # black check
+make format-fix   # black format
+make typecheck    # mypy
+make coverage     # pytest with coverage report
+make build        # Build distribution packages
+make clean        # Remove build artifacts
 ```
+
+See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for detailed guidelines.
+
+---
+
+## Documentation
+
+- [Architecture](docs/ARCHITECTURE.md) — System design and component overview
+- [Examples](docs/EXAMPLES.md) — CLI and Python API usage examples
+- [Contributing](docs/CONTRIBUTING.md) — Development setup and PR process
+- [Changelog](CHANGELOG.md) — Release history
 
 ---
 
