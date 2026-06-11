@@ -237,11 +237,13 @@ class AgentLoop:
         mode: str = "orchestrator",
         tool_filter: list[str] | None = None,
         enable_checkpoints: bool = True,
+        vector_store: Any | None = None,
     ) -> None:
         self._model: BaseModel = model or model_factory.get_active_model()
         self._mode_cfg: AgentModeConfig = get_mode(mode)
         self._tool_filter: list[str] | None = tool_filter
         self._enable_checkpoints = enable_checkpoints
+        self._vector_store: Any | None = vector_store
         self._graph: CompiledStateGraph | None = None
         self._last_state: AgentState | None = None
 
@@ -373,8 +375,32 @@ class AgentLoop:
 
     # ── Graph nodes ──────────────────────────────────────────────────
 
+    def _retrieve_context(self, query: str, k: int = 5) -> str:
+        """Search the vector store for code snippets relevant to *query*.
+
+        Returns a formatted string of retrieved chunks, or empty string
+        if no vector store is available.
+        """
+        if self._vector_store is None:
+            return ""
+        try:
+            results = self._vector_store.search(query, k=k)
+            if not results:
+                return ""
+            parts = []
+            for i, hit in enumerate(results, 1):
+                meta = hit.get("metadata", {})
+                file_name = meta.get("file", "unknown")
+                content = hit.get("content", "").strip()
+                if content:
+                    parts.append(f"--- snippet {i} ({file_name}) ---\n{content[:800]}")
+            return "\n\n".join(parts)
+        except Exception as exc:
+            logger.warning("RAG retrieval failed: %s", exc)
+            return ""
+
     def _think_node(self, state: AgentState) -> dict[str, Any]:
-        """Call the LLM with current messages + tools.  Returns updated state."""
+        """Call the LLM with current messages + tools + RAG context."""
         logger.info(
             "think  iteration=%d/%d  tokens=%d",
             state["iteration"] + 1, state["max_iterations"],
@@ -391,20 +417,41 @@ class AgentLoop:
         if self._should_summarize(state):
             self._auto_summarize(state)
 
+        # ── RAG: retrieve relevant code context ────────────────────────
+        task = state.get("task", "")
+        rag_context = self._retrieve_context(task, k=5)
+        messages = list(state["messages"])
+        if rag_context:
+            # Inject as a system message right before the user task
+            rag_msg = {
+                "role": "system",
+                "content": (
+                    "Relevant code from the workspace:\n\n" + rag_context +
+                    "\n\nUse the above snippets to ground your answer."
+                ),
+            }
+            # Insert after any existing system messages, before user messages
+            insert_idx = 0
+            for i, msg in enumerate(messages):
+                if msg.get("role") == "system":
+                    insert_idx = i + 1
+            messages.insert(insert_idx, rag_msg)
+            logger.info("RAG: injected %d snippets", rag_context.count("--- snippet"))
+
         # Build tool list filtered by mode.
         tools = self._get_tools_for_mode()
 
         try:
             response: LLMResponse = self._model.chat(
-                messages=state["messages"],
+                messages=messages,
                 tools=tools,
                 stream=False,
             )
         except ContextWindowError:
             logger.warning("Context window exceeded — summarizing and retrying.")
-            self._auto_summarize(state, force=True)
+            self._auto_summarize(state)
             response = self._model.chat(
-                messages=state["messages"],
+                messages=messages,
                 tools=tools,
                 stream=False,
             )

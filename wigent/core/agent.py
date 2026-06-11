@@ -152,6 +152,7 @@ class WigentAgent:
             model=model,
             mode=resolved_mode,
             enable_checkpoints=self._enable_checkpoints,
+            vector_store=self._memory.vectors,
         )
 
         self.state = self._loop.run(
@@ -214,6 +215,7 @@ class WigentAgent:
             model=model,
             mode=resolved_mode,
             enable_checkpoints=self._enable_checkpoints,
+            vector_store=self._memory.vectors,
         )
 
         final_state: AgentState | None = None
