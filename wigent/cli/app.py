@@ -1,211 +1,136 @@
 from __future__ import annotations
 
-import argparse
 import logging
 import os
 import sys
 from typing import Any, NoReturn
 
-from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
-from rich.text import Text
-
 from wigent.config import settings
 
+from wigent.cli.cli_args import parse_args
+from wigent.cli.commands import CommandHandler
+from wigent.cli.diff_display import DiffDisplay
+from wigent.cli.input_handler import InputHandler
+from wigent.cli.ui_components import UIComponents
 
 logger = logging.getLogger(__name__)
-console = Console()
-
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="wigent",
-        description="Autonomous AI coding agent",
-        epilog="Visit https://wigent.dev for documentation.",
-    )
-    parser.add_argument(
-        "prompt",
-        nargs="?",
-        help="Task prompt (single-shot mode). Omit for interactive mode.",
-    )
-    parser.add_argument(
-        "--mode", "-m",
-        default=None,
-        help="Agent mode (orchestrator, architect, coder, debugger, reviewer)",
-    )
-    parser.add_argument(
-        "--provider", "-p",
-        default=None,
-        help="LLM provider (openai, anthropic, gemini, groq, ollama, etc.)",
-    )
-    parser.add_argument(
-        "--yes", "-y",
-        action="store_true",
-        default=False,
-        help="Auto-approve all actions (bypass safety gates)",
-    )
-    parser.add_argument(
-        "--verbose", "-v",
-        action="store_true",
-        default=False,
-        help="Enable debug logging",
-    )
-    return parser
+ui = UIComponents()
 
 
 def display_workspace_banner(info: dict[str, Any]) -> None:
-    if not info or info.get("project_type", "unknown") == "unknown":
-        console.print(
-            Panel(
-                "[yellow]No project detected. Working in current directory.[/yellow]",
-                title="📁 Workspace",
-                border_style="yellow",
-            )
-        )
-        return
+    """Legacy wrapper — delegates to UIComponents."""
+    ui.print_workspace_banner(info)
 
-    ptype = info.get("project_type", "unknown")
-    framework = info.get("framework")
-    lang = info.get("language", "unknown")
-    pm = info.get("package_manager")
-    has_git = info.get("has_git", False)
 
-    type_str = f"{ptype}" + (f" ({framework})" if framework else "")
-    type_color = "cyan" if ptype != "unknown" else "yellow"
-    lang_color = "green" if lang != "unknown" else "white"
+def _determine_mode(args: dict[str, Any]) -> str:
+    return args.get("mode") or settings.DEFAULT_MODE
 
-    grid = Table.grid(padding=(0, 2))
-    grid.add_column(style="bold")
-    grid.add_column()
 
-    grid.add_row("📁 Project", f"[bright_cyan]{os.path.basename(info.get('path', ''))}[/bright_cyan]")
-    grid.add_row("⚡ Type", f"[{type_color}]{type_str}[/{type_color}]")
-    grid.add_row("🔤 Language", f"[{lang_color}]{lang}[/{lang_color}]")
-    grid.add_row("📦 Package Manager", pm or "[dim]none[/dim]")
-
-    if has_git:
-        git_color = "green"
-        git_status = "✓ git repository"
-        try:
-            import subprocess
-            result = subprocess.run(
-                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-                capture_output=True, text=True, timeout=3,
-                cwd=info.get("path", ""),
-            )
-            if result.returncode == 0:
-                branch = result.stdout.strip()
-                dirty = subprocess.run(
-                    ["git", "status", "--porcelain"],
-                    capture_output=True, text=True, timeout=3,
-                    cwd=info.get("path", ""),
-                )
-                dirty_flag = " [+dirty]" if dirty.stdout.strip() else ""
-                git_status = f"🌿 {branch}{dirty_flag}"
-                git_color = "red" if dirty.stdout.strip() else "green"
-        except Exception:
-            pass
-        grid.add_row("🌿 Git", f"[{git_color}]{git_status}[/{git_color}]")
-    else:
-        grid.add_row("🌿 Git", "[dim]no repo[/dim]")
-
-    if info.get("has_tests"):
-        grid.add_row("🧪 Tests", "[green]detected[/green]")
-    if info.get("has_docker"):
-        grid.add_row("🐳 Docker", "[blue]detected[/blue]")
-
-    console.print(Panel(grid, title="📁 Workspace Loaded", border_style="bright_blue"))
+def _determine_provider(args: dict[str, Any]) -> str:
+    return args.get("provider") or settings.DEFAULT_PROVIDER
 
 
 def run_interactive(agent: Any) -> None:
-    console.print("[bold green]✅ Agent ready. Enter your task (or /help for commands).[/bold green]")
-    console.print()
+    cmd_handler = CommandHandler(agent, ui)
+    input_handler = InputHandler(cmd_handler.get_all_commands(), console=ui.console)
+    mode = agent._mode
+
+    ui.console.print()
+    ui.print_divider("Ready")
+
     while True:
-        try:
-            prompt = console.input("[bold cyan]>> [/bold cyan]").strip()
-        except (EOFError, KeyboardInterrupt):
-            console.print("\n[yellow]Goodbye![/yellow]")
+        user_input = input_handler.get_input(mode=mode)
+
+        if user_input == "__INTERRUPT__":
+            ui.print_interrupt_message()
+            continue
+
+        if user_input == "__EXIT__":
+            n = len(agent.messages) if agent.messages else 0
+            ui.console.print(f"[yellow]Goodbye! {n} messages in session.[/yellow]")
             break
 
-        if not prompt:
-            continue
-        if prompt.startswith("/"):
-            _handle_command(agent, prompt)
+        if not user_input:
             continue
 
-        with console.status("[cyan]Thinking...[/cyan]"):
+        if user_input.startswith("/"):
+            result = cmd_handler.execute(user_input)
+            ui.print_command_result(result.to_dict())
+            if result.data.get("should_exit"):
+                break
+            continue
+
+        ui.print_user_message(user_input)
+
+        with ui.console.status(f"[{ui.THINKING_COLOR}]Thinking...[/{ui.THINKING_COLOR}]"):
             try:
-                state = agent.run(prompt)
-                result = state.get("result", "") if state else ""
-                if result:
-                    console.print(result)
+                state = agent.run(user_input)
+                result_text = state.get("result", "") if state else ""
+                if result_text:
+                    ui.print_agent_message(result_text, mode=agent._mode)
             except Exception as exc:
-                console.print(f"[red]Error: {exc}[/red]")
+                ui.print_error(str(exc), recoverable=True)
 
-
-def _handle_command(agent: Any, cmd: str) -> None:
-    cmd = cmd.lower().strip()
-    if cmd == "/help":
-        console.print("[bold]Commands:[/bold]")
-        console.print("  /help       - Show this help")
-        console.print("  /status     - Show agent status")
-        console.print("  /workspace  - Show workspace info")
-        console.print("  /reload     - Reload workspace")
-        console.print("  /reset      - Reset agent state")
-        console.print("  /exit       - Exit")
-    elif cmd == "/status":
         status = agent.get_status()
-        console.print(Panel(str(status), title="Status"))
-    elif cmd == "/workspace":
-        ws = agent.get_workspace_info()
-        display_workspace_banner(ws)
-    elif cmd == "/reload":
-        with console.status("[cyan]Reloading workspace...[/cyan]"):
-            ws = agent.reload_workspace()
-        display_workspace_banner(ws)
-    elif cmd == "/reset":
-        agent.reset()
-        console.print("[green]Agent reset.[/green]")
-    elif cmd in ("/exit", "/quit"):
-        console.print("[yellow]Goodbye![/yellow]")
-        sys.exit(0)
-    else:
-        console.print(f"[red]Unknown command: {cmd}. Type /help for commands.[/red]")
+        ui.print_status_bar({
+            "mode": status.get("mode", mode),
+            "model": status.get("model", "unknown"),
+            "tokens_used": status.get("memory_tokens", 0),
+            "tokens_max": 200_000,
+            "cost": status.get("last_run_cost", 0.0),
+        })
+        mode = agent._mode
 
 
 def main(argv: list[str] | None = None) -> NoReturn:
-    parser = build_parser()
-    args = parser.parse_args(argv)
+    args = parse_args(argv)
 
-    log_level = logging.DEBUG if args.verbose else logging.INFO
+    log_level = logging.DEBUG if args.get("debug") else logging.INFO
     logging.basicConfig(level=log_level, format="%(levelname)s  %(name)s  %(message)s")
 
-    if args.yes:
+    if args.get("yes"):
         os.environ["AUTO_APPROVE"] = "true"
+
+    version = args.get("version", "0.6.0")
+    mode = _determine_mode(args)
+    provider = _determine_provider(args)
+
+    if not args.get("no_banner"):
+        ui.print_banner(version=version, model=provider, mode=mode)
 
     from wigent.core.agent import WigentAgent
 
     agent = WigentAgent(
-        mode=args.mode,
-        provider=args.provider,
+        mode=args.get("mode"),
+        provider=args.get("provider"),
     )
 
-    workspace_path = os.getcwd()
-    with console.status("[cyan]Loading project context...[/cyan]"):
+    workspace_path = args.get("workspace") or os.getcwd()
+    with ui.console.status(f"[{ui.THINKING_COLOR}]Loading project context...[/{ui.THINKING_COLOR}]"):
         workspace_info = agent.load_workspace(workspace_path)
 
-    display_workspace_banner(workspace_info)
+    ui.print_workspace_banner(workspace_info)
 
-    if args.prompt:
-        with console.status("[cyan]Thinking...[/cyan]"):
+    if args.get("session"):
+        try:
+            session = agent._memory.sessions.load_session(args["session"])
+            if session:
+                agent._current_session_id = session.session_id
+                ui.console.print(f"[green]Loaded session: {args['session']}[/green]")
+        except Exception:
+            ui.console.print(f"[yellow]Session '{args['session']}' not found.[/yellow]")
+
+    if args.get("prompt"):
+        prompt = args["prompt"]
+        ui.print_user_message(prompt)
+        with ui.console.status(f"[{ui.THINKING_COLOR}]Thinking...[/{ui.THINKING_COLOR}]"):
             try:
-                state = agent.run(args.prompt, mode=args.mode)
-                result = state.get("result", "") if state else ""
-                if result:
-                    console.print(result)
+                state = agent.run(prompt, mode=args.get("mode"))
+                result_text = state.get("result", "") if state else ""
+                if result_text:
+                    ui.print_agent_message(result_text, mode=agent._mode)
             except Exception as exc:
-                console.print(f"[red]Error: {exc}[/red]")
+                ui.print_error(str(exc), recoverable=False)
         sys.exit(0)
 
     run_interactive(agent)
@@ -215,4 +140,4 @@ def main(argv: list[str] | None = None) -> NoReturn:
 if __name__ == "__main__":
     main()
 
-__all__ = ["main"]
+__all__ = ["main", "display_workspace_banner"]
