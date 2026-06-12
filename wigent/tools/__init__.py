@@ -140,6 +140,15 @@ from wigent.tools.complexity_analyzer import (
     MetricType,
 )
 
+# ── secret_scanner ────────────────────────────────────────────────────────
+from wigent.tools.secret_scanner import (
+    SecretScanner,
+    SecretMatch,
+    ScanResult,
+    SecretType,
+    RiskLevel,
+)
+
 # ── schemas ──────────────────────────────────────────────────────────────
 from wigent.tools.tool_schemas import TOOL_SCHEMAS
 
@@ -207,6 +216,12 @@ __all__ = [
     "get_imports",
     "get_complexity",
     "get_docstrings",
+    # secret_scanner
+    "SecretScanner",
+    "SecretMatch",
+    "ScanResult",
+    "SecretType",
+    "RiskLevel",
     # schemas
     "TOOL_SCHEMAS",
     # file_reader
