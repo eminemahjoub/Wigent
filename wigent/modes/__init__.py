@@ -9,6 +9,13 @@
 
 from wigent.modes.interview import BaseMode, InterviewMode
 from wigent.modes.debugger import DebuggerMode, BugReport, TriageStep, TriageStatus, BugCategory
+from wigent.modes.reviewer import (
+    ReviewerMode,
+    ReviewSeverity,
+    ReviewAxis,
+    ReviewConfig,
+    ReviewSummary,
+)
 
 __all__ = [
     "BaseMode",
@@ -18,4 +25,9 @@ __all__ = [
     "TriageStep",
     "TriageStatus",
     "BugCategory",
+    "ReviewerMode",
+    "ReviewSeverity",
+    "ReviewAxis",
+    "ReviewConfig",
+    "ReviewSummary",
 ]
