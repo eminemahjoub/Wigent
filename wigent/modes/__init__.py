@@ -8,8 +8,14 @@
 """Standalone mode implementations that run outside the main agent loop."""
 
 from wigent.modes.interview import BaseMode, InterviewMode
+from wigent.modes.debugger import DebuggerMode, BugReport, TriageStep, TriageStatus, BugCategory
 
 __all__ = [
     "BaseMode",
     "InterviewMode",
+    "DebuggerMode",
+    "BugReport",
+    "TriageStep",
+    "TriageStatus",
+    "BugCategory",
 ]
