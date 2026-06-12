@@ -16,6 +16,13 @@ from wigent.modes.reviewer import (
     ReviewConfig,
     ReviewSummary,
 )
+from wigent.modes.simplify import (
+    SimplifyMode,
+    SimplifySession,
+    SimplifyAction,
+    SimplificationProposal,
+    ComplexityMetrics,
+)
 
 __all__ = [
     "BaseMode",
@@ -30,4 +37,9 @@ __all__ = [
     "ReviewAxis",
     "ReviewConfig",
     "ReviewSummary",
+    "SimplifyMode",
+    "SimplifySession",
+    "SimplifyAction",
+    "SimplificationProposal",
+    "ComplexityMetrics",
 ]
