@@ -19,6 +19,7 @@ Sub-modules
 - ``loop.py``         — Core loop with StateGraph, token management,
                         cycle detection, auto-summarization, checkpoints.
 - ``orchestrator.py`` — Task classification, mode routing, multi-mode plans.
+- ``triage_engine.py`` — 5-step systematic debugging pipeline (REPRODUCE -> LOCALIZE -> REDUCE -> FIX -> GUARD).
 """
 
 from wigent.core.agent import Agent, WigentAgent, run_agent
@@ -27,6 +28,7 @@ from wigent.core.orchestrator import Orchestrator
 from wigent.core.planner import Task, Planner
 from wigent.core.executor import CoderAgent
 from wigent.core.debugger import DebuggerAgent
+from wigent.core.triage_engine import TriageEngine, TriageState, TriageStep, ErrorSignature
 from wigent.core.skill_router import Skill, SkillRouter
 
 __all__ = [
@@ -41,6 +43,10 @@ __all__ = [
     "Planner",
     "CoderAgent",
     "DebuggerAgent",
+    "TriageEngine",
+    "TriageState",
+    "TriageStep",
+    "ErrorSignature",
     "Skill",
     "SkillRouter",
 ]
