@@ -130,10 +130,27 @@ from wigent.tools.visual_diff import (
     DiffSeverity,
 )
 
+# ── complexity_analyzer ──────────────────────────────────────────────────
+from wigent.tools.complexity_analyzer import (
+    ComplexityAnalyzer,
+    FileMetrics,
+    FunctionMetrics,
+    ProjectMetrics,
+    DuplicationBlock,
+    MetricType,
+)
+
 # ── schemas ──────────────────────────────────────────────────────────────
 from wigent.tools.tool_schemas import TOOL_SCHEMAS
 
 __all__ = [
+    # complexity_analyzer
+    "ComplexityAnalyzer",
+    "FileMetrics",
+    "FunctionMetrics",
+    "ProjectMetrics",
+    "DuplicationBlock",
+    "MetricType",
     # visual_diff
     "VisualDiff",
     "VisualDiffReport",
