@@ -1,260 +1,148 @@
 """
-Role: Debugging and error recovery mode with systematic 5-step triage.
+Role: Browser debugger mode with 5-step triage methodology for diagnosing UI bugs.
 Author: Wigent AI
 Version: 1.0.0
 
-Implements the debugging-and-error-recovery skill:
-1. REPRODUCE — Make it fail every time
-2. LOCALIZE — Find the exact lines
-3. REDUCE — Minimal test case
-4. FIX — One change, verified
-5. GUARD — Regression test, monitoring
-
-Stop-the-line rule: No passing tests? No new features.
+Integrates with BrowserMCP to provide automated debugging workflow:
+Observe -> Isolate -> Diagnose -> Fix -> Verify. Every bug is treated
+as a forensic investigation requiring reproducible evidence.
 
 Usage:
-    from wigent.modes.debugger import DebuggerMode, DebugSession
+    from wigent.modes.debugger import DebuggerMode, BugReport, TriageStep
 
-    debugger = DebuggerMode(llm_client)
+    debugger = DebuggerMode(llm_client, browser_mcp)
 
-    session = debugger.start_session(
-        error="NullPointerException at AuthService.java:142",
-        logs=stack_trace,
-        context=codebase_context
+    report = await debugger.triage(
+        url="http://localhost:3000/login",
+        symptom="Submit button does nothing when clicked",
+        expected_behavior="Form submits and shows success message"
     )
 
-    # 5-step triage
-    session.reproduce()  # Step 1
-    session.localize()   # Step 2
-    session.reduce()     # Step 3
-    session.fix()        # Step 4
-    session.guard()      # Step 5
+    for step in report.steps:
+        print(f"{step.step}: {step.status}")
 
-    report = session.generate_report()
+    if report.root_cause:
+        fix = await debugger.apply_fix(report)
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
-import re
 import time
 from dataclasses import dataclass, field
-from enum import Enum, auto
-from pathlib import Path
-from typing import TYPE_CHECKING
+from enum import Enum
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from wigent.models.base_model import BaseModel
+    from wigent.tools.browser_mcp import BrowserMCP, ConsoleLog, NetworkRequest
 
 
-class DebugPhase(Enum):
-    """The 5 phases of systematic debugging."""
-    REPRODUCE = ("reproduce", "Make it fail every single time")
-    LOCALIZE = ("localize", "Find the exact lines of code")
-    REDUCE = ("reduce", "Minimal test case that still fails")
-    FIX = ("fix", "One surgical change, verified")
-    GUARD = ("guard", "Regression test + monitoring")
-
-    def __init__(self, label: str, description: str):
-        self.label = label
-        self.description = description
+class TriageStatus(Enum):
+    """Status of each triage step."""
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    PASSED = "passed"
+    FAILED = "failed"
+    BLOCKED = "blocked"
 
 
-class ErrorCategory(Enum):
-    """Classification of error types for targeted debugging."""
-    SYNTAX = ("syntax", "Compilation/parse failure")
-    RUNTIME = ("runtime", "Exception during execution")
-    LOGIC = ("logic", "Wrong output, no crash")
-    PERFORMANCE = ("performance", "Too slow, timeout, memory")
-    CONCURRENCY = ("concurrency", "Race condition, deadlock, inconsistency")
-    SECURITY = ("security", "Vulnerability, auth bypass, injection")
-    INFRASTRUCTURE = ("infrastructure", "Network, disk, dependency failure")
-    REGRESSION = ("regression", "Previously worked, now broken")
-    FLAKY = ("flaky", "Intermittent, non-deterministic")
-
-    def __init__(self, label: str, description: str):
-        self.label = label
-        self.description = description
+class BugCategory(Enum):
+    """Categories of UI bugs detectable via browser triage."""
+    CONSOLE_ERROR = "console_error"
+    NETWORK_FAILURE = "network_failure"
+    ELEMENT_NOT_FOUND = "element_not_found"
+    TIMING_RACE = "timing_race"
+    ACCESSIBILITY = "accessibility"
+    VISUAL_REGRESSION = "visual_regression"
+    JAVASCRIPT_EXCEPTION = "javascript_exception"
+    STATE_MANAGEMENT = "state_management"
+    STYLING = "styling"
+    UNKNOWN = "unknown"
 
 
 @dataclass
-class ErrorSignature:
-    """Unique fingerprint of an error for deduplication and tracking."""
+class TriageStep:
+    """A single step in the 5-step triage process."""
 
-    category: ErrorCategory
-    message_pattern: str  # Normalized error message (no variable data)
-    stack_hash: str  # Hash of stack trace frames
-    file_location: str | None = None
-    line_number: int | None = None
-    first_seen: float = field(default_factory=time.time)
-    occurrence_count: int = 1
-
-    @classmethod
-    def from_raw(cls, error_message: str, stack_trace: str) -> ErrorSignature:
-        """Create signature from raw error data."""
-        # Normalize message: remove variable data (timestamps, IDs, memory addresses)
-        normalized = re.sub(r"0x[0-9a-fA-F]+", "<ADDR>", error_message)
-        normalized = re.sub(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}", "<TIME>", normalized)
-        normalized = re.sub(r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}", "<UUID>", normalized)
-        normalized = re.sub(r"\d+", "<N>", normalized)
-
-        # Extract stack frames
-        frames = re.findall(r"at\s+([^\s(]+)", stack_trace)
-        stack_hash = hashlib.sha256(":".join(frames).encode()).hexdigest()[:16]
-
-        # Extract file location
-        location_match = re.search(r"([^\s:]+):(\d+)", stack_trace)
-        file_location = location_match.group(1) if location_match else None
-        line_number = int(location_match.group(2)) if location_match else None
-
-        # Categorize
-        category = cls._categorize(error_message, stack_trace)
-
-        return cls(
-            category=category,
-            message_pattern=normalized[:200],
-            stack_hash=stack_hash,
-            file_location=file_location,
-            line_number=line_number,
-        )
-
-    @staticmethod
-    def _categorize(message: str, stack: str) -> ErrorCategory:
-        """Auto-categorize error from message and stack."""
-        msg_lower = message.lower()
-        stack_lower = stack.lower()
-
-        if any(w in msg_lower for w in ["nullpointer", "undefined", "referenceerror", "attributeerror"]):
-            return ErrorCategory.RUNTIME
-        elif any(w in msg_lower for w in ["syntax", "parse", "unexpected token", "indentation"]):
-            return ErrorCategory.SYNTAX
-        elif any(w in msg_lower for w in ["timeout", "slow", "memory", "performance", "latency"]):
-            return ErrorCategory.PERFORMANCE
-        elif any(w in msg_lower for w in ["race", "deadlock", "concurrent", "thread", "lock"]):
-            return ErrorCategory.CONCURRENCY
-        elif any(w in msg_lower for w in ["injection", "xss", "auth", "permission", "forbidden", "bypass"]):
-            return ErrorCategory.SECURITY
-        elif any(w in stack_lower for w in ["network", "connection", "dns", "timeout", "refused"]):
-            return ErrorCategory.INFRASTRUCTURE
-        elif any(w in msg_lower for w in ["intermittent", "sometimes", "randomly", "flaky", "race"]):
-            return ErrorCategory.FLAKY
-        else:
-            return ErrorCategory.LOGIC
+    step: str
+    description: str
+    status: TriageStatus
+    evidence: list[str] = field(default_factory=list)
+    findings: str = ""
+    duration_ms: float = 0.0
 
 
 @dataclass
-class PhaseResult:
-    """Result of executing one debug phase."""
+class BugReport:
+    """Complete bug report generated through triage."""
 
-    phase: DebugPhase
-    status: str  # "success", "failed", "blocked", "skipped"
-    output: str = ""
-    artifacts: list[str] = field(default_factory=list)  # File paths, test names, etc.
-    duration_seconds: float = 0.0
-    next_phase: DebugPhase | None = None
-    blockers: list[str] = field(default_factory=list)
-
-
-@dataclass
-class DebugSession:
-    """Complete debugging session with full traceability."""
-
-    session_id: str
-    signature: ErrorSignature
-    phases: list[PhaseResult] = field(default_factory=list)
-    current_phase: DebugPhase | None = None
-    status: str = "active"  # active, resolved, escalated, abandoned
-    root_cause: str | None = None
-    fix_commit: str | None = None
-    regression_test: str | None = None
-    monitoring_alert: str | None = None
-    start_time: float = field(default_factory=time.time)
-    end_time: float | None = None
+    url: str
+    symptom: str
+    expected_behavior: str
+    category: BugCategory
+    steps: list[TriageStep] = field(default_factory=list)
+    root_cause: str = ""
+    fix_suggestion: str = ""
+    confidence: float = 0.0
+    console_errors: list[dict] = field(default_factory=list)
+    network_failures: list[dict] = field(default_factory=list)
+    dom_snapshot: str = ""
+    screenshot_path: str = ""
+    regression_test: str = ""
 
     @property
-    def duration_seconds(self) -> float:
-        end = self.end_time or time.time()
-        return end - self.start_time
+    def is_resolved(self) -> bool:
+        """Check if all steps completed successfully."""
+        return all(s.status == TriageStatus.PASSED for s in self.steps)
 
     def to_markdown(self) -> str:
-        """Generate full debug report."""
-        status_icon = {
-            "resolved": "\u2705",
-            "escalated": "\u26a0\ufe0f",
-            "abandoned": "\u274c",
-            "active": "\U0001f504",
-        }.get(self.status, "\u2753")
-
+        """Render bug report as markdown."""
         lines = [
-            f"# Debug Session: {self.session_id}",
-            f"",
-            f"**Status:** {status_icon} {self.status.upper()}",
-            f"**Duration:** {self.duration_seconds:.1f}s",
-            f"**Error Category:** {self.signature.category.description}",
-            f"",
-            f"## Error Signature",
-            f"",
-            f"- **Pattern:** `{self.signature.message_pattern[:100]}`",
-            f"- **Location:** {self.signature.file_location or 'Unknown'}:{self.signature.line_number or '?'}",
-            f"- **Stack Hash:** `{self.signature.stack_hash}`",
-            f"- **Occurrences:** {self.signature.occurrence_count}",
-            f"",
-            f"## Phase Results",
-            f"",
+            f"## Bug Report: {self.url}",
+            "",
+            f"**Symptom:** {self.symptom}",
+            f"**Expected:** {self.expected_behavior}",
+            f"**Category:** {self.category.value}",
+            f"**Confidence:** {self.confidence:.0%}",
+            "",
+            "### Triage Steps",
+            "| Step | Status | Duration | Findings |",
+            "|------|--------|----------|----------|",
         ]
 
-        for result in self.phases:
+        for step in self.steps:
             icon = {
-                "success": "\u2705",
-                "failed": "\u274c",
-                "blocked": "\U0001f6ab",
-                "skipped": "\u23ed\ufe0f",
-            }.get(result.status, "\u2753")
-
-            lines.extend([
-                f"### {icon} {result.phase.label.upper()}",
-                f"",
-                f"**Status:** {result.status}",
-                f"**Duration:** {result.duration_seconds:.1f}s",
-                f"",
-                f"{result.output}",
-                f"",
-            ])
-
-            if result.artifacts:
-                lines.extend([
-                    f"**Artifacts:**",
-                    *[f"- `{a}`" for a in result.artifacts],
-                    f"",
-                ])
-
-            if result.blockers:
-                lines.extend([
-                    f"**Blockers:**",
-                    *[f"- \u26a0\ufe0f {b}" for b in result.blockers],
-                    f"",
-                ])
-
-            lines.append("---")
-            lines.append("")
+                TriageStatus.PASSED: "PASS",
+                TriageStatus.FAILED: "FAIL",
+                TriageStatus.IN_PROGRESS: " ...",
+                TriageStatus.BLOCKED: "BLKD",
+                TriageStatus.PENDING: "PEND",
+            }.get(step.status, "????")
+            lines.append(
+                f"| **{step.step}** | {icon} | {step.duration_ms:.0f}ms | "
+                f"{step.findings[:80]}{'...' if len(step.findings) > 80 else ''} |"
+            )
 
         if self.root_cause:
             lines.extend([
-                f"## Root Cause",
-                f"",
-                f"{self.root_cause}",
-                f"",
+                "",
+                "### Root Cause",
+                self.root_cause,
             ])
 
-        if self.fix_commit:
+        if self.fix_suggestion:
             lines.extend([
-                f"## Fix",
-                f"",
-                f"- **Commit:** `{self.fix_commit}`",
-                f"- **Regression Test:** `{self.regression_test or 'Not added'}`",
-                f"- **Monitoring:** `{self.monitoring_alert or 'Not configured'}`",
-                f"",
+                "",
+                "### Fix Suggestion",
+                self.fix_suggestion,
+            ])
+
+        if self.regression_test:
+            lines.extend([
+                "",
+                "### Regression Test",
+                f"```python\n{self.regression_test}\n```",
             ])
 
         return "\n".join(lines)
@@ -262,598 +150,587 @@ class DebugSession:
 
 class DebuggerMode:
     """
-    Systematic debugging with 5-step triage and stop-the-line enforcement.
+    Browser debugger with 5-step triage methodology.
 
     Principles:
-    1. REPRODUCE — If you can't make it fail, you can't fix it
-    2. LOCALIZE — Find exact lines, not modules
-    3. REDUCE — Minimal test case isolates the bug
-    4. FIX — One change, verified, no "while I'm here"
-    5. GUARD — Regression test prevents recurrence, monitoring catches early
-
-    Stop-the-line: If tests are broken, no new features. Fix first.
+    1. Reproduce first — never guess at a bug you haven't seen fail
+    2. Evidence over intuition — every finding requires a screenshot, log, or trace
+    3. Isolate before fixing — know the root cause, not just the symptom
+    4. Minimal fix — one line is better than ten; no refactoring during bug fixes
+    5. Verify with automation — the fix isn't done until a test proves it
     """
 
-    # Phase timeouts (seconds)
-    PHASE_TIMEOUTS = {
-        DebugPhase.REPRODUCE: 300,    # 5 min
-        DebugPhase.LOCALIZE: 600,     # 10 min
-        DebugPhase.REDUCE: 600,       # 10 min
-        DebugPhase.FIX: 300,          # 5 min
-        DebugPhase.GUARD: 300,        # 5 min
+    BUG_PATTERNS = {
+        BugCategory.CONSOLE_ERROR: {
+            "indicators": ["console.error", "Uncaught", "TypeError", "ReferenceError"],
+            "evidence": "console log capture",
+            "fix_template": "Wrap {component} in error boundary or fix {cause}",
+        },
+        BugCategory.NETWORK_FAILURE: {
+            "indicators": ["4xx", "5xx", "net::ERR_", "Failed to load"],
+            "evidence": "network trace",
+            "fix_template": "Verify {endpoint} returns valid response for {params}",
+        },
+        BugCategory.ELEMENT_NOT_FOUND: {
+            "indicators": ["null", "undefined", "querySelector", "getElementById"],
+            "evidence": "DOM snapshot",
+            "fix_template": "Wait for {element} to render before interacting",
+        },
+        BugCategory.TIMING_RACE: {
+            "indicators": ["intermittent", "sometimes", "flaky", "async"],
+            "evidence": "repeated reproduction traces",
+            "fix_template": "Add wait_for_{event} before {action}",
+        },
+        BugCategory.JAVASCRIPT_EXCEPTION: {
+            "indicators": ["throw", "exception", "error in", "at HTML"],
+            "evidence": "stack trace",
+            "fix_template": "Handle {condition} in {function} before accessing {property}",
+        },
+        BugCategory.STATE_MANAGEMENT: {
+            "indicators": ["stale", "out of sync", "not updating", "cache"],
+            "evidence": "state diff across interactions",
+            "fix_template": "Invalidate {cache_key} when {event} occurs",
+        },
+        BugCategory.STYLING: {
+            "indicators": ["hidden", "overlapping", "wrong size", "z-index"],
+            "evidence": "computed styles + screenshot",
+            "fix_template": "Set {property}: {value} on {selector}",
+        },
     }
-
-    # Max phases before escalation
-    MAX_PHASE_ATTEMPTS = 3
 
     def __init__(
         self,
         llm_client: BaseModel,
-        workspace: str | Path = ".",
-        test_runner: str = "pytest",
-        stop_the_line: bool = True,
+        browser_mcp: BrowserMCP | None = None,
+        screenshot_dir: str = "debug_screenshots",
     ) -> None:
         self.llm = llm_client
-        self.workspace = Path(workspace).resolve()
-        self.test_runner = test_runner
-        self.stop_the_line = stop_the_line
+        self.browser = browser_mcp
+        self.screenshot_dir = screenshot_dir
 
-        # Session tracking
-        self._active_sessions: dict[str, DebugSession] = {}
-        self._resolved_signatures: dict[str, DebugSession] = {}
-        self._escalation_count: int = 0
-
-    def start_session(
+    async def triage(
         self,
-        error_message: str,
-        stack_trace: str = "",
-        logs: str = "",
-        context: dict | None = None,
-    ) -> DebugSession:
+        url: str,
+        symptom: str,
+        expected_behavior: str,
+        interaction_script: str | None = None,
+        max_retries: int = 3,
+    ) -> BugReport:
         """
-        Start a new debugging session with error signature.
+        Run the full 5-step triage on a UI bug.
+
+        Steps:
+        1. OBSERVE — navigate to URL and capture all available evidence
+        2. ISOLATE — determine which component/interaction is failing
+        3. DIAGNOSE — inspect DOM, network, console, and state
+        4. FIX — generate minimal fix suggestion
+        5. VERIFY — (requires apply_fix to be called separately)
 
         Args:
-            error_message: The error message or exception text
-            stack_trace: Full stack trace if available
-            logs: Additional log context
-            context: Codebase context, recent changes, environment
+            url: The page URL exhibiting the bug
+            symptom: What the user observes (e.g., "button doesn't respond")
+            expected_behavior: What should happen instead
+            interaction_script: Optional JS to reproduce interaction
+            max_retries: Times to retry reproduction
 
         Returns:
-            DebugSession with unique ID and error signature
-        """
-        signature = ErrorSignature.from_raw(error_message, stack_trace)
-
-        # Check if we've seen this before
-        if signature.stack_hash in self._resolved_signatures:
-            previous = self._resolved_signatures[signature.stack_hash]
-            signature.occurrence_count = previous.signature.occurrence_count + 1
-
-        session_id = f"debug-{signature.stack_hash}-{int(time.time())}"
-
-        session = DebugSession(
-            session_id=session_id,
-            signature=signature,
-        )
-
-        self._active_sessions[session_id] = session
-        return session
-
-    async def run_full_triage(self, session: DebugSession) -> DebugSession:
-        """
-        Execute all 5 phases of debugging triage.
-
-        Stop-the-line: If any phase is blocked, escalate immediately.
-        """
-        phases = [
-            DebugPhase.REPRODUCE,
-            DebugPhase.LOCALIZE,
-            DebugPhase.REDUCE,
-            DebugPhase.FIX,
-            DebugPhase.GUARD,
-        ]
-
-        for phase in phases:
-            if session.status != "active":
-                break
-
-            session.current_phase = phase
-            result = await self._execute_phase(session, phase)
-            session.phases.append(result)
-
-            # Stop-the-line: blocked phases halt everything
-            if result.status == "blocked" and self.stop_the_line:
-                session.status = "escalated"
-                self._escalation_count += 1
-                break
-
-            # Failed phase: retry or escalate
-            if result.status == "failed":
-                if len([p for p in session.phases if p.phase == phase]) < self.MAX_PHASE_ATTEMPTS:
-                    # Retry with adjusted approach
-                    continue
-                else:
-                    session.status = "escalated"
-                    self._escalation_count += 1
-                    break
-
-        if session.status == "active":
-            session.status = "resolved"
-            self._resolved_signatures[session.signature.stack_hash] = session
-
-        session.end_time = time.time()
-        return session
-
-    async def _execute_phase(self, session: DebugSession, phase: DebugPhase) -> PhaseResult:
-        """
-        Execute a single debug phase with LLM assistance.
-
-        Each phase has specific goals, artifacts, and success criteria.
+            BugReport with all findings and fix suggestion
         """
         start_time = time.time()
 
-        if phase == DebugPhase.REPRODUCE:
-            return await self._phase_reproduce(session, start_time)
-        elif phase == DebugPhase.LOCALIZE:
-            return await self._phase_localize(session, start_time)
-        elif phase == DebugPhase.REDUCE:
-            return await self._phase_reduce(session, start_time)
-        elif phase == DebugPhase.FIX:
-            return await self._phase_fix(session, start_time)
-        elif phase == DebugPhase.GUARD:
-            return await self._phase_guard(session, start_time)
+        if not self.browser:
+            raise DebuggerError("BrowserMCP required for triage. Pass browser_mcp to constructor.")
 
-        return PhaseResult(
-            phase=phase,
-            status="failed",
-            output="Unknown phase",
-            duration_seconds=time.time() - start_time,
+        if not self.browser._is_connected:
+            await self.browser.connect()
+
+        report = BugReport(
+            url=url,
+            symptom=symptom,
+            expected_behavior=expected_behavior,
+            category=BugCategory.UNKNOWN,
         )
 
-    async def _phase_reproduce(self, session: DebugSession, start_time: float) -> PhaseResult:
-        """
-        REPRODUCE: Make the error fail every single time.
-
-        Success criteria:
-        - Test case that fails 100% of runs
-        - No environmental dependencies (same result on any machine)
-        - Documented preconditions
-        """
-        prompt = self._build_reproduce_prompt(session)
-        response = self.llm.generate(prompt, temperature=0.2, max_tokens=3000)
-
-        # Parse reproduction steps
-        test_code = self._extract_code(response)
-        reproduction_steps = self._extract_steps(response)
-
-        # Verify: run the test, check if it fails
-        test_passed, test_output = await self._run_test(test_code)
-
-        if not test_passed:  # Test fails = reproduction successful
-            return PhaseResult(
-                phase=DebugPhase.REPRODUCE,
-                status="success",
-                output=f"Reproduction successful. Test fails consistently.\n\n{test_output}",
-                artifacts=[f"test_reproduce_{session.session_id}.py"],
-                duration_seconds=time.time() - start_time,
-                next_phase=DebugPhase.LOCALIZE,
-            )
-        else:
-            # Test passed = couldn't reproduce
-            blockers = []
-            if "intermittent" in session.signature.category.description.lower():
-                blockers.append("Flaky error — may require stress testing or timing manipulation")
-            if "environment" in test_output.lower():
-                blockers.append("Environment-dependent — needs containerized reproduction")
-
-            return PhaseResult(
-                phase=DebugPhase.REPRODUCE,
-                status="blocked" if blockers else "failed",
-                output=f"Could not reproduce. Test passed unexpectedly.\n\n{test_output}",
-                blockers=blockers,
-                duration_seconds=time.time() - start_time,
-            )
-
-    async def _phase_localize(self, session: DebugSession, start_time: float) -> PhaseResult:
-        """
-        LOCALIZE: Find the exact lines of code causing the error.
-
-        Success criteria:
-        - Specific file and line number
-        - Variable values at failure point
-        - Call stack context
-        - No "somewhere in module X"
-        """
-        # Use existing stack trace as starting point
-        initial_location = session.signature.file_location
-
-        prompt = self._build_localize_prompt(session, initial_location)
-        response = self.llm.generate(prompt, temperature=0.1, max_tokens=3000)
-
-        # Parse localization results
-        locations = self._extract_locations(response)
-        root_cause_analysis = self._extract_analysis(response)
-
-        if locations and len(locations) > 0:
-            session.root_cause = root_cause_analysis
-            return PhaseResult(
-                phase=DebugPhase.LOCALIZE,
-                status="success",
-                output=f"Localized to:\n{chr(10).join(f'- {loc}' for loc in locations)}\n\nRoot cause: {root_cause_analysis}",
-                artifacts=locations,
-                duration_seconds=time.time() - start_time,
-                next_phase=DebugPhase.REDUCE,
-            )
-        else:
-            return PhaseResult(
-                phase=DebugPhase.LOCALIZE,
-                status="failed",
-                output="Could not localize. Stack trace insufficient or code changed.",
-                blockers=["Need more context: recent commits, dependency changes, environment diff"],
-                duration_seconds=time.time() - start_time,
-            )
-
-    async def _phase_reduce(self, session: DebugSession, start_time: float) -> PhaseResult:
-        """
-        REDUCE: Create minimal test case that still fails.
-
-        Success criteria:
-        - Remove all code unrelated to the bug
-        - Remove all dependencies not needed for failure
-        - Test is <50 lines
-        - Fails with same error signature
-        """
-        prompt = self._build_reduce_prompt(session)
-        response = self.llm.generate(prompt, temperature=0.2, max_tokens=3000)
-
-        minimal_test = self._extract_code(response)
-
-        # Verify minimal test still fails
-        test_passed, test_output = await self._run_test(minimal_test)
-
-        if not test_passed:  # Still fails = reduction successful
-            line_count = len(minimal_test.split("\n"))
-            return PhaseResult(
-                phase=DebugPhase.REDUCE,
-                status="success",
-                output=f"Minimal test case ({line_count} lines) reproduces error.\n\n{test_output}",
-                artifacts=[f"test_minimal_{session.session_id}.py"],
-                duration_seconds=time.time() - start_time,
-                next_phase=DebugPhase.FIX,
-            )
-        else:
-            return PhaseResult(
-                phase=DebugPhase.REDUCE,
-                status="failed",
-                output=f"Minimal test no longer fails. Over-reduced or different root cause.\n\n{test_output}",
-                blockers=["Need to preserve more context in minimal test"],
-                duration_seconds=time.time() - start_time,
-            )
-
-    async def _phase_fix(self, session: DebugSession, start_time: float) -> PhaseResult:
-        """
-        FIX: One surgical change, verified.
-
-        Rules:
-        - One change per commit
-        - No "while I'm here" refactoring
-        - Test passes after fix
-        - Original reproduction test passes
-        - No new failures introduced
-        """
-        prompt = self._build_fix_prompt(session)
-        response = self.llm.generate(prompt, temperature=0.1, max_tokens=3000)
-
-        fix_code = self._extract_code(response)
-        fix_explanation = self._extract_explanation(response)
-
-        # Apply fix
-        fix_applied = await self._apply_fix(session, fix_code)
-
-        if not fix_applied:
-            return PhaseResult(
-                phase=DebugPhase.FIX,
-                status="failed",
-                output="Could not apply fix automatically.",
-                blockers=["Manual fix required — automated patch failed"],
-                duration_seconds=time.time() - start_time,
-            )
-
-        # Verify: run all tests
-        all_passed, test_output = await self._run_all_tests()
-
-        if all_passed:
-            # Commit the fix
-            commit_hash = await self._commit_fix(session, fix_explanation)
-            session.fix_commit = commit_hash
-
-            return PhaseResult(
-                phase=DebugPhase.FIX,
-                status="success",
-                output=f"Fix applied and verified. All tests pass.\n\n{fix_explanation}",
-                artifacts=[f"fix_{session.session_id}.patch", f"commit_{commit_hash}"],
-                duration_seconds=time.time() - start_time,
-                next_phase=DebugPhase.GUARD,
-            )
-        else:
-            # Revert and report
-            await self._revert_fix(session)
-
-            return PhaseResult(
-                phase=DebugPhase.FIX,
-                status="failed",
-                output=f"Fix broke other tests. Reverted.\n\n{test_output}",
-                blockers=["Fix is too broad — needs more targeted approach"],
-                duration_seconds=time.time() - start_time,
-            )
-
-    async def _phase_guard(self, session: DebugSession, start_time: float) -> PhaseResult:
-        """
-        GUARD: Regression test + monitoring.
-
-        Success criteria:
-        - Regression test added to test suite
-        - Test fails with original bug, passes with fix
-        - Monitoring alert configured (if applicable)
-        - Documentation updated
-        """
-        prompt = self._build_guard_prompt(session)
-        response = self.llm.generate(prompt, temperature=0.2, max_tokens=3000)
-
-        regression_test = self._extract_code(response)
-        monitoring_config = self._extract_monitoring(response)
-
-        # Add regression test to suite
-        test_added = await self._add_regression_test(session, regression_test)
-
-        # Verify regression test
-        test_passed, _ = await self._run_test(regression_test)
-
-        if test_passed and test_added:
-            session.regression_test = f"test_regression_{session.session_id}.py"
-            session.monitoring_alert = monitoring_config
-
-            return PhaseResult(
-                phase=DebugPhase.GUARD,
-                status="success",
-                output="Regression test added and verified. Monitoring configured.",
-                artifacts=[
-                    f"test_regression_{session.session_id}.py",
-                    f"monitoring_{session.session_id}.yaml",
-                ],
-                duration_seconds=time.time() - start_time,
-                next_phase=None,
-            )
-        else:
-            return PhaseResult(
-                phase=DebugPhase.GUARD,
-                status="failed",
-                output="Could not add regression test.",
-                blockers=["Manual test review needed"],
-                duration_seconds=time.time() - start_time,
-            )
-
-    def get_session(self, session_id: str) -> DebugSession | None:
-        """Retrieve active or resolved session."""
-        return self._active_sessions.get(session_id)
-
-    def get_similar_sessions(self, signature: ErrorSignature) -> list[DebugSession]:
-        """Find previously resolved sessions with similar errors."""
-        similar = []
-        for resolved in self._resolved_signatures.values():
-            if resolved.signature.category == signature.category:
-                # Same category = potentially related
-                similar.append(resolved)
-            elif resolved.signature.stack_hash == signature.stack_hash:
-                # Exact match = same bug recurring
-                similar.insert(0, resolved)  # Most relevant first
-
-        return similar[:5]  # Top 5
-
-    def get_stats(self) -> dict[str, int | float]:
-        """Return debugging statistics."""
-        total = len(self._active_sessions)
-        resolved = sum(1 for s in self._active_sessions.values() if s.status == "resolved")
-        escalated = sum(1 for s in self._active_sessions.values() if s.status == "escalated")
-
-        avg_duration = (
-            sum(s.duration_seconds for s in self._active_sessions.values()) / total
-            if total > 0 else 0
+        # Step 1: OBSERVE
+        step1 = TriageStep(
+            step="OBSERVE",
+            description="Navigate to URL, capture console, network, screenshot",
+            status=TriageStatus.IN_PROGRESS,
         )
+        observe_start = time.time()
 
-        return {
-            "total_sessions": total,
-            "resolved": resolved,
-            "escalated": escalated,
-            "active": total - resolved - escalated,
-            "escalation_rate": escalated / total if total > 0 else 0,
-            "avg_duration_seconds": avg_duration,
-            "unique_signatures": len(self._resolved_signatures),
-            "recurring_bugs": sum(
-                1 for s in self._resolved_signatures.values()
-                if s.signature.occurrence_count > 1
-            ),
-        }
+        try:
+            nav_info = await self.browser.navigate(url, wait_until="networkidle")
+            step1.evidence.append(f"Page loaded: {nav_info.get('title', 'unknown')}")
+
+            console_logs = await self.browser.get_console_logs()
+            network_requests = await self.browser.get_network_trace()
+
+            console_errors = [
+                {"message": log.message, "level": log.level.value}
+                for log in console_logs
+                if log.level.value in ("error", "warning")
+            ]
+            network_failures = [
+                {"url": req.url, "status": req.status, "error": req.error_text}
+                for req in network_requests
+                if req.failed or (req.status and req.status >= 400)
+            ]
+
+            report.console_errors = console_errors
+            report.network_failures = network_failures
+
+            screenshot_bytes = await self.browser.screenshot()
+            screenshot_path = f"{self.screenshot_dir}/{int(time.time())}_observe.png"
+            import os
+            os.makedirs(self.screenshot_dir, exist_ok=True)
+            with open(screenshot_path, "wb") as f:
+                f.write(screenshot_bytes)
+            report.screenshot_path = screenshot_path
+            step1.evidence.append(f"Screenshot saved: {screenshot_path}")
+
+            if console_errors:
+                step1.findings = f"Found {len(console_errors)} console errors, {len(network_failures)} network failures"
+            else:
+                step1.findings = "No console errors on initial load"
+
+            step1.status = TriageStatus.PASSED
+        except Exception as e:
+            step1.status = TriageStatus.FAILED
+            step1.findings = f"Observation failed: {e}"
+
+        step1.duration_ms = (time.time() - observe_start) * 1000
+        report.steps.append(step1)
+
+        if step1.status == TriageStatus.FAILED:
+            return report
+
+        # Step 2: ISOLATE
+        step2 = TriageStep(
+            step="ISOLATE",
+            description="Perform interaction and narrow to failing component",
+            status=TriageStatus.IN_PROGRESS,
+        )
+        isolate_start = time.time()
+
+        try:
+            if interaction_script:
+                for attempt in range(max_retries):
+                    try:
+                        await self.browser.evaluate(interaction_script)
+                        break
+                    except Exception:
+                        await self.browser.navigate(url, wait_until="networkidle")
+                        if attempt == max_retries - 1:
+                            raise
+                step2.evidence.append(f"Executed interaction script: {interaction_script[:100]}...")
+
+            # Wait and capture post-interaction state
+            await self.browser.wait_for_timeout(1000)
+
+            post_console = await self.browser.get_console_logs()
+            post_network = await self.browser.get_network_trace()
+
+            new_errors = [
+                log for log in post_console
+                if log.level.value in ("error", "warning")
+                and log not in [
+                    ConsoleLog(level=c.level, message=c.message)
+                    for c in console_logs
+                ]
+            ]
+
+            new_failures = [
+                req for req in post_network
+                if req.failed or (req.status and req.status >= 400)
+                and req not in network_requests
+            ]
+
+            if new_errors:
+                error_texts = [e.message[:200] for e in new_errors]
+                step2.findings = f"{len(new_errors)} new errors after interaction: {error_texts[0]}"
+                step2.evidence.append(f"New console errors: {error_texts}")
+
+                for error in new_errors:
+                    for category, pattern in self.BUG_PATTERNS.items():
+                        if any(ind in error.message for ind in pattern["indicators"]):
+                            report.category = category
+                            break
+            elif new_failures:
+                step2.findings = f"{len(new_failures)} new network failures after interaction"
+                report.category = BugCategory.NETWORK_FAILURE
+            else:
+                # Try DOM inspection to find missing elements
+                dom_state = await self.browser.evaluate("""
+                    () => {
+                        const buttons = document.querySelectorAll('button, a, [role="button"]');
+                        const forms = document.querySelectorAll('form');
+                        return {
+                            buttonCount: buttons.length,
+                            formCount: forms.length,
+                            visibleButtons: Array.from(buttons).filter(b =>
+                                b.offsetParent !== null
+                            ).map(b => ({
+                                text: b.textContent.trim().slice(0, 50),
+                                disabled: b.disabled || false
+                            })),
+                            lastError: window.__lastError || null
+                        };
+                    }
+                """)
+                step2.evidence.append(f"DOM state: {dom_state}")
+                step2.findings = f"DOM has {dom_state.get('buttonCount', 0)} buttons, {dom_state.get('formCount', 0)} forms"
+
+                if dom_state.get("lastError"):
+                    report.category = BugCategory.JAVASCRIPT_EXCEPTION
+
+            step2.status = TriageStatus.PASSED
+        except Exception as e:
+            step2.status = TriageStatus.FAILED
+            step2.findings = f"Isolation failed: {e}"
+
+        step2.duration_ms = (time.time() - isolate_start) * 1000
+        report.steps.append(step2)
+
+        # Step 3: DIAGNOSE
+        step3 = TriageStep(
+            step="DIAGNOSE",
+            description="Deep dive into DOM, accessibility, network, and state",
+            status=TriageStatus.IN_PROGRESS,
+        )
+        diagnose_start = time.time()
+
+        try:
+            # Get accessibility tree
+            ax_tree = await self.browser.get_accessibility_tree()
+            step3.evidence.append(f"Accessibility tree captured")
+
+            # Get performance metrics
+            perf = await self.browser.get_performance_metrics()
+            step3.evidence.append(f"Performance: LCP={perf.lcp}, CLS={perf.cls}")
+
+            # Get console errors detail
+            error_logs = await self.browser.get_console_logs()
+            step3.evidence.append(f"Total console entries: {len(error_logs)}")
+
+            # Deep DOM analysis
+            dom_analysis = await self.browser.evaluate("""
+                () => {
+                    const issues = [];
+                    document.querySelectorAll('[data-testid], [id], [name]').forEach(el => {
+                        const rect = el.getBoundingClientRect();
+                        const style = getComputedStyle(el);
+                        issues.push({
+                            selector: el.tagName.toLowerCase()
+                                + (el.id ? '#' + el.id : '')
+                                + (el.getAttribute('data-testid')
+                                    ? '[data-testid="' + el.getAttribute('data-testid') + '"]'
+                                    : ''),
+                            visible: rect.width > 0 && rect.height > 0,
+                            disabled: el.disabled || false,
+                            zIndex: style.zIndex,
+                            opacity: style.opacity,
+                            pointerEvents: style.pointerEvents,
+                            text: (el.textContent || '').trim().slice(0, 60)
+                        });
+                    });
+                    return issues;
+                }
+            """)
+            report.dom_snapshot = json.dumps(dom_analysis, indent=2)
+            step3.evidence.append(f"DOM analysis: {len(dom_analysis)} elements inspected")
+
+            # Try to detect the bug using LLM
+            classification_prompt = f"""Classify this UI bug into one of these categories:
+{chr(10).join(f"- {c.value}: {', '.join(p['indicators'])}" for c, p in self.BUG_PATTERNS.items())}
+
+## Evidence
+- Symptom: {symptom}
+- Expected: {expected_behavior}
+- Console errors: {[e.message[:200] for e in error_logs]}
+- Network failures: {[f.url for f in network_failures]}
+- Button states: {dom_analysis[:5]}
+
+## Output format
+Return JSON with: category, root_cause, fix_suggestion, confidence
+"""
+
+            llm_response = self.llm.generate(
+                classification_prompt,
+                temperature=0.1,
+                max_tokens=1000,
+            )
+            llm_analysis = self._parse_llm_json(llm_response)
+
+            if llm_analysis:
+                for category in BugCategory:
+                    if category.value == llm_analysis.get("category"):
+                        report.category = category
+                        break
+                report.root_cause = llm_analysis.get("root_cause", "")
+                report.fix_suggestion = llm_analysis.get("fix_suggestion", "")
+                report.confidence = llm_analysis.get("confidence", 0.0)
+
+            step3.findings = f"Category: {report.category.value}, Confidence: {report.confidence:.0%}"
+            step3.status = TriageStatus.PASSED
+        except Exception as e:
+            step3.status = TriageStatus.FAILED
+            step3.findings = f"Diagnosis failed: {e}"
+
+        step3.duration_ms = (time.time() - diagnose_start) * 1000
+        report.steps.append(step3)
+
+        # Step 4: FIX (generate suggestion only)
+        step4 = TriageStep(
+            step="FIX",
+            description="Generate minimal fix suggestion",
+            status=TriageStatus.IN_PROGRESS,
+        )
+        fix_start = time.time()
+
+        try:
+            if report.category and report.fix_suggestion:
+                step4.findings = report.fix_suggestion[:200]
+            elif report.category in self.BUG_PATTERNS:
+                pattern = self.BUG_PATTERNS[report.category]
+                report.fix_suggestion = self._generate_fix_suggestion(
+                    category=report.category,
+                    symptom=symptom,
+                    console_errors=[e.message for e in error_logs],
+                    network_failures=[f.url for f in network_failures],
+                    dom_analysis=dom_analysis,
+                )
+                step4.findings = report.fix_suggestion[:200]
+            else:
+                step4.findings = "Unable to determine fix — insufficient evidence"
+                report.confidence = min(report.confidence, 0.3)
+
+            # Generate regression test
+            report.regression_test = self._generate_regression_test(
+                url=url,
+                symptom=symptom,
+                expected=expected_behavior,
+                fix=report.fix_suggestion,
+            )
+
+            step4.status = TriageStatus.PASSED
+        except Exception as e:
+            step4.status = TriageStatus.FAILED
+            step4.findings = f"Fix generation failed: {e}"
+
+        step4.duration_ms = (time.time() - fix_start) * 1000
+        report.steps.append(step4)
+
+        # Step 5: VERIFY (placeholder — actual fix and rerun is external)
+        step5 = TriageStep(
+            step="VERIFY",
+            description="Apply fix and rerun reproduction (call apply_fix)",
+            status=TriageStatus.PENDING,
+            findings="Call debugger.apply_fix(report) after implementing the fix suggestion",
+        )
+        report.steps.append(step5)
+
+        return report
+
+    async def apply_fix(
+        self,
+        report: BugReport,
+        fix_code: str,
+        interaction_script: str | None = None,
+    ) -> BugReport:
+        """
+        Apply a fix and verify it resolves the bug.
+
+        Args:
+            report: BugReport from triage
+            fix_code: The code fix to apply
+            interaction_script: Script to reproduce the bug
+
+        Returns:
+            Updated BugReport with verification results
+        """
+        if not self.browser:
+            raise DebuggerError("BrowserMCP required for verification.")
+
+        if not self.browser._is_connected:
+            await self.browser.connect()
+
+        # Reload and verify
+        await self.browser.navigate(report.url, wait_until="networkidle")
+
+        if interaction_script:
+            await self.browser.evaluate(interaction_script)
+            await self.browser.wait_for_timeout(1000)
+
+        # Post-fix checks
+        post_logs = await self.browser.get_console_logs()
+        post_network = await self.browser.get_network_trace()
+
+        post_errors = [l for l in post_logs if l.level.value == "error"]
+        post_failures = [r for r in post_network if r.failed or (r.status and r.status >= 400)]
+
+        # Capture evidence
+        screenshot_bytes = await self.browser.screenshot()
+        verify_path = f"{self.screenshot_dir}/{int(time.time())}_verify.png"
+        import os
+        os.makedirs(self.screenshot_dir, exist_ok=True)
+        with open(verify_path, "wb") as f:
+            f.write(screenshot_bytes)
+
+        # Update verification step
+        for step in report.steps:
+            if step.step == "VERIFY":
+                step.status = TriageStatus.PASSED if not post_errors else TriageStatus.FAILED
+                step.evidence.append(f"Post-fix errors: {len(post_errors)}")
+                step.evidence.append(f"Post-fix failures: {len(post_failures)}")
+                step.evidence.append(f"Verification screenshot: {verify_path}")
+                step.findings = (
+                    "Fix verified: no remaining errors"
+                    if not post_errors
+                    else f"Still {len(post_errors)} errors after fix"
+                )
+                step.duration_ms = 0  # Set externally if needed
+                break
+
+        return report
+
+    def verify_console_clean(self, logs: list[ConsoleLog]) -> bool:
+        """Check that console has no errors or warnings."""
+        errors = [l for l in logs if l.level.value in ("error", "warning")]
+        return len(errors) == 0
+
+    def verify_network_clean(self, requests: list[NetworkRequest]) -> bool:
+        """Check that all requests completed successfully."""
+        failures = [r for r in requests if r.failed or (r.status and r.status >= 400)]
+        return len(failures) == 0
+
+    def classify_bug(
+        self,
+        console_errors: list[str],
+        network_statuses: list[int],
+        dom_state: dict[str, Any],
+    ) -> BugCategory:
+        """Classify a bug based on available evidence."""
+
+        # Console errors take priority
+        for error in console_errors:
+            for category, pattern in self.BUG_PATTERNS.items():
+                if any(ind in error for ind in pattern["indicators"]):
+                    return category
+
+        # Network failures
+        if any(s >= 400 for s in network_statuses):
+            return BugCategory.NETWORK_FAILURE
+
+        # DOM issues
+        if dom_state:
+            buttons = dom_state.get("visibleButtons", [])
+            if buttons and all(b.get("disabled") for b in buttons):
+                return BugCategory.ELEMENT_NOT_FOUND
+
+        return BugCategory.UNKNOWN
 
     # =================================================================
-    # Prompt Builders
+    # Internal Methods
     # =================================================================
 
-    def _build_reproduce_prompt(self, session: DebugSession) -> str:
-        """Build prompt for REPRODUCE phase."""
-        return f"""Create a test that reproduces this error 100% of the time.
+    def _parse_llm_json(self, response: str) -> dict[str, Any] | None:
+        """Parse JSON from LLM response, handling markdown wrapping."""
+        import re
 
-## Error
-{session.signature.message_pattern}
+        json_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", response, re.DOTALL)
+        if json_match:
+            try:
+                return json.loads(json_match.group(1))
+            except json.JSONDecodeError:
+                pass
 
-## Stack Trace
-{session.signature.file_location}:{session.signature.line_number}
+        try:
+            return json.loads(response)
+        except (json.JSONDecodeError, ValueError):
+            return None
 
-## Category
-{session.signature.category.description}
+    def _generate_fix_suggestion(
+        self,
+        category: BugCategory,
+        symptom: str,
+        console_errors: list[str],
+        network_failures: list[str],
+        dom_analysis: list[dict],
+    ) -> str:
+        """Generate a minimal fix suggestion based on bug evidence."""
+        pattern = self.BUG_PATTERNS.get(category)
+        if not pattern:
+            return "Review the evidence and debug logs above."
 
-## Rules
-1. No environmental dependencies (same result on any machine)
-2. No race conditions (deterministic)
-3. Document all preconditions
-4. Include setup code inline
-5. Use only standard library + test framework
+        template = pattern["fix_template"]
 
-## Output
-Return ONLY the test code.
+        if category == BugCategory.CONSOLE_ERROR:
+            error = console_errors[0] if console_errors else symptom
+            return f"Fix the following error: {error}\n\nWrap the component in an error boundary and ensure all async operations have proper try-catch handling."
+
+        elif category == BugCategory.NETWORK_FAILURE:
+            url = network_failures[0] if network_failures else "unknown endpoint"
+            return f"Verify the API endpoint {url} is reachable and returns valid JSON. Check network tab for response payload."
+
+        elif category == BugCategory.ELEMENT_NOT_FOUND:
+            missing = dom_analysis[0] if dom_analysis else {"selector": "unknown"}
+            return f"Add an explicit wait for {missing.get('selector', 'the element')} before attempting interaction. The element may be rendered conditionally or asynchronously."
+
+        elif category == BugCategory.TIMING_RACE:
+            return f"Use waitForSelector/waitForFunction instead of fixed timeouts. The bug is likely a race condition between rendering and interaction."
+
+        elif category == BugCategory.JAVASCRIPT_EXCEPTION:
+            error = console_errors[0] if console_errors else symptom
+            return f"Handle the exception in try-catch: {error}. Add null checks before accessing properties on potentially undefined objects."
+
+        elif category == BugCategory.STATE_MANAGEMENT:
+            return f"Ensure state is properly invalidated after mutations. Check that stale data is not being cached or reused across component re-renders."
+
+        elif category == BugCategory.STYLING:
+            return f"Review CSS computed properties. The element may be hidden, overlapping, or positioned off-screen. Check z-index, opacity, display, and visibility."
+
+        return f"Template: {template}"
+
+    def _generate_regression_test(
+        self,
+        url: str,
+        symptom: str,
+        expected: str,
+        fix: str,
+    ) -> str:
+        """Generate a Playwright regression test for the fixed bug."""
+        slug = symptom.lower().replace(" ", "_").replace("'", "")[:40]
+
+        return f'''"""
+Regression test for: {symptom}
+Expected: {expected}
+Fix: {fix[:200]}
 """
 
-    def _build_localize_prompt(self, session: DebugSession, initial_location: str | None) -> str:
-        """Build prompt for LOCALIZE phase."""
-        return f"""Find the exact lines causing this error.
+import pytest
 
-## Error
-{session.signature.message_pattern}
 
-## Initial Location
-{initial_location or "Unknown"}
+@pytest.mark.asyncio
+async def test_{slug}_regression(page):
+    """Verify fix for: {symptom}"""
+    # Arrange
+    await page.goto("{url}", wait_until="networkidle")
 
-## Rules
-1. Specific file and line number
-2. Variable values at failure point
-3. Call stack context (3 frames up, 3 down)
-4. No "somewhere in module X" — exact references
-5. Consider: recent commits, dependency changes, environment
+    # Act
+    # {symptom}
 
-## Output
-Return:
-1. Exact file:line references
-2. Root cause analysis (3-5 sentences)
-3. Why this code fails with this input
-"""
+    # Assert
+    # {expected}
 
-    def _build_reduce_prompt(self, session: DebugSession) -> str:
-        """Build prompt for REDUCE phase."""
-        return f"""Reduce this to a minimal test case that still fails.
+    # Verify console is clean
+    console_logs = []
+    page.on("console", lambda msg: console_logs.append(msg))
+    errors = [msg for msg in console_logs if msg.type == "error"]
+    assert len(errors) == 0, f"Console errors: {errors}"
+'''
 
-## Root Cause
-{session.root_cause or "Unknown"}
 
-## Rules
-1. Remove all unrelated code
-2. Remove all unnecessary dependencies
-3. Target <50 lines
-4. Same error signature
-5. Inline everything (no imports if possible)
-
-## Output
-Return ONLY the minimal test code.
-"""
-
-    def _build_fix_prompt(self, session: DebugSession) -> str:
-        """Build prompt for FIX phase."""
-        return f"""Fix this bug with one surgical change.
-
-## Root Cause
-{session.root_cause or "Unknown"}
-
-## Rules
-1. ONE change per commit (no "while I'm here")
-2. Explain the fix in 2-3 sentences
-3. No refactoring unrelated code
-4. Preserve all existing behavior
-5. Add type hints if missing
-
-## Output
-Return:
-1. The fix code (diff format preferred)
-2. Explanation of why this fixes the bug
-"""
-
-    def _build_guard_prompt(self, session: DebugSession) -> str:
-        """Build prompt for GUARD phase."""
-        return f"""Create a regression test and monitoring for this bug.
-
-## Bug
-{session.root_cause or "Unknown"}
-
-## Fix
-{session.fix_commit or "Applied"}
-
-## Rules
-1. Test fails with original bug, passes with fix
-2. Descriptive name: test_regression_{session.signature.category.label}_{description}
-3. Add to permanent test suite
-4. Monitoring alert if applicable (performance, error rate)
-5. Document in CHANGELOG
-
-## Output
-Return:
-1. Regression test code
-2. Monitoring configuration (YAML or JSON)
-3. CHANGELOG entry
-"""
-
-    # =================================================================
-    # Internal Helpers
-    # =================================================================
-
-    def _extract_code(self, response: str) -> str:
-        """Extract code block from response."""
-        match = re.search(r"```(?:\w+)?\s*(.*?)\s*```", response, re.DOTALL)
-        return match.group(1) if match else response
-
-    def _extract_steps(self, response: str) -> list[str]:
-        """Extract numbered steps from response."""
-        return re.findall(r"\d+\.\s+(.*?)(?=\n\d+\.|\n\n|$)", response, re.DOTALL)
-
-    def _extract_locations(self, response: str) -> list[str]:
-        """Extract file:line locations."""
-        return re.findall(r"([^\s:]+):(\d+)", response)
-
-    def _extract_analysis(self, response: str) -> str:
-        """Extract root cause analysis."""
-        lines = response.split("\n")
-        for i, line in enumerate(lines):
-            if "root cause" in line.lower() or "analysis" in line.lower():
-                return "\n".join(lines[i:i+5])
-        return ""
-
-    def _extract_explanation(self, response: str) -> str:
-        """Extract fix explanation."""
-        lines = response.split("\n")
-        for i, line in enumerate(lines):
-            if "explanation" in line.lower() or "why" in line.lower():
-                return "\n".join(lines[i:i+3])
-        return ""
-
-    def _extract_monitoring(self, response: str) -> str:
-        """Extract monitoring configuration."""
-        match = re.search(r"```(?:yaml|json)?\s*(.*?)\s*```", response, re.DOTALL)
-        return match.group(1) if match else ""
-
-    async def _run_test(self, test_code: str) -> tuple[bool, str]:
-        """Run test code and return (passed, output)."""
-        # In production: write to temp file, run with pytest
-        # For now: simulate
-        return False, "Simulated test failure"
-
-    async def _run_all_tests(self) -> tuple[bool, str]:
-        """Run full test suite."""
-        # In production: subprocess.run([self.test_runner])
-        return True, "All tests pass"
-
-    async def _apply_fix(self, session: DebugSession, fix_code: str) -> bool:
-        """Apply fix to codebase."""
-        # In production: parse diff, apply patches
-        return True
-
-    async def _revert_fix(self, session: DebugSession) -> None:
-        """Revert applied fix."""
-        # In production: git checkout or patch -R
-        pass
-
-    async def _commit_fix(self, session: DebugSession, explanation: str) -> str:
-        """Commit fix with descriptive message."""
-        # In production: git commit
-        return f"fix-{session.session_id[:8]}"
-
-    async def _add_regression_test(self, session: DebugSession, test_code: str) -> bool:
-        """Add regression test to test suite."""
-        # In production: write to tests/regression/
-        return True
+class DebuggerError(Exception):
+    """Raised when debugger operations fail."""
+    pass
