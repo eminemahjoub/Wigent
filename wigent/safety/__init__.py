@@ -24,6 +24,14 @@ from wigent.safety.sandbox import (
 )
 from wigent.safety.validator import InputValidator, ValidationResult
 
+from wigent.safety.owasp_scanner import (
+    OwaspScanner,
+    ScanResult,
+    Vulnerability,
+    OwaspCategory,
+    Severity,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -171,4 +179,6 @@ __all__ = [
     "format_approval_request",
     "BLOCKED_PATTERNS", "WARN_PATTERNS", "SAFE_PREFIXES",
     "InputValidator", "ValidationResult",
+    "OwaspScanner", "ScanResult", "Vulnerability",
+    "OwaspCategory", "Severity",
 ]
