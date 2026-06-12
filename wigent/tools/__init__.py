@@ -119,10 +119,29 @@ from wigent.tools.browser_mcp import (
     launch_browser,
 )
 
+# ── visual_diff ─────────────────────────────────────────────────────────
+from wigent.tools.visual_diff import (
+    VisualDiff,
+    VisualDiffReport,
+    PixelDiff,
+    PixelDiffRegion,
+    LayoutDiff,
+    LayoutChange,
+    DiffSeverity,
+)
+
 # ── schemas ──────────────────────────────────────────────────────────────
 from wigent.tools.tool_schemas import TOOL_SCHEMAS
 
 __all__ = [
+    # visual_diff
+    "VisualDiff",
+    "VisualDiffReport",
+    "PixelDiff",
+    "PixelDiffRegion",
+    "LayoutDiff",
+    "LayoutChange",
+    "DiffSeverity",
     # file_reader
     "read_file",
     "read_file_lines",
