@@ -30,6 +30,15 @@ from wigent.core.executor import CoderAgent
 from wigent.core.debugger import DebuggerAgent
 from wigent.core.triage_engine import TriageEngine, TriageState, TriageStep, ErrorSignature
 from wigent.core.skill_router import Skill, SkillRouter
+from wigent.core.review_engine import (
+    ReviewEngine,
+    ReviewChunk,
+    ReviewFinding,
+    FileChange,
+    CodeRange,
+    ChunkStrategy,
+    DiffParser,
+)
 
 __all__ = [
     "WigentAgent",
@@ -49,4 +58,11 @@ __all__ = [
     "ErrorSignature",
     "Skill",
     "SkillRouter",
+    "ReviewEngine",
+    "ReviewChunk",
+    "ReviewFinding",
+    "FileChange",
+    "CodeRange",
+    "ChunkStrategy",
+    "DiffParser",
 ]
