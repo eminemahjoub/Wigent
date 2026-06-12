@@ -38,6 +38,9 @@ _AVAILABLE_PROMPTS: Final[set[str]] = {
     "interview",
     "ideate",
     "spec",
+    "tdd",
+    "verify",
+    "debug",
 }
 
 # ── cache ────────────────────────────────────────────────────────────────
@@ -51,7 +54,8 @@ def load_prompt(name: str) -> str:
     Args:
         name: Prompt name (without ``.md`` suffix). One of:
               ``base``, ``orchestrator``, ``architect``, ``coder``,
-              ``debugger``, ``reviewer``, ``tool_use``, ``safety``.
+              ``debugger``, ``reviewer``, ``tool_use``, ``safety``,
+              ``tdd``, ``verify``, ``debug``.
 
     Returns:
         The full text content of the prompt file.
