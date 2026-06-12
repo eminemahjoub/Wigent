@@ -111,15 +111,12 @@ from wigent.tools.git_tool import (
 # ── browser_mcp ─────────────────────────────────────────────────────────
 from wigent.tools.browser_mcp import (
     BrowserMCP,
-    BrowserSession,
-    ConsoleLog,
-    DOMElement,
+    BrowserSnapshot,
+    BrowserState,
+    ConsoleEntry,
     NetworkRequest,
     PerformanceMetrics,
-    LogLevel,
-    ResourceType,
-    BrowserNotConnectedError,
-    ElementNotFoundError,
+    launch_browser,
 )
 
 # ── schemas ──────────────────────────────────────────────────────────────
@@ -180,15 +177,12 @@ __all__ = [
     "get_file_summary",
     # browser_mcp
     "BrowserMCP",
-    "BrowserSession",
-    "ConsoleLog",
-    "DOMElement",
+    "BrowserSnapshot",
+    "BrowserState",
+    "ConsoleEntry",
     "NetworkRequest",
     "PerformanceMetrics",
-    "LogLevel",
-    "ResourceType",
-    "BrowserNotConnectedError",
-    "ElementNotFoundError",
+    "launch_browser",
     # git_tool
     "check_is_git_repo",
     "get_repo_root",

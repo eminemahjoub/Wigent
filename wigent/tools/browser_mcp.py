@@ -1,32 +1,15 @@
 """
-Role: Browser testing tool with Chrome DevTools MCP integration.
-Author: Wigent AI
-Version: 1.0.0
+Browser MCP -- Chrome DevTools Protocol Integration for Agent Verification
 
-Provides DOM inspection, console log capture, network tracing,
-performance profiling, and visual regression testing via
-Chrome DevTools Protocol (CDP) through Model Context Protocol (MCP).
+Provides the agent with real browser instrumentation:
+- DOM inspection and manipulation
+- Console log capture (errors, warnings, network)
+- Network trace recording (HAR-style)
+- Performance profiling (Core Web Vitals, runtime metrics)
+- Screenshot and visual state capture
 
-Usage:
-    from wigent.tools.browser_mcp import BrowserMCP, BrowserSession
-
-    async with BrowserSession() as session:
-        await session.navigate("https://localhost:3000")
-
-        # DOM inspection
-        elements = await session.query_selector("button[data-testid='login']")
-
-        # Console logs
-        logs = await session.get_console_logs()
-
-        # Network trace
-        requests = await session.get_network_trace()
-
-        # Performance
-        metrics = await session.get_performance_metrics()
-
-        # Screenshot for visual diff
-        screenshot = await session.screenshot()
+This is the bridge between the agent and a real browser instance,
+enabling the Verify phase to prove frontend changes actually work.
 """
 
 from __future__ import annotations
@@ -34,687 +17,764 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
-import re
-import time
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import Enum, auto
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import Any, Optional
 
-if TYPE_CHECKING:
-    pass  # No external type dependencies
-
-
-class LogLevel(Enum):
-    """Console log severity levels."""
-    VERBOSE = "verbose"
-    INFO = "info"
-    WARNING = "warning"
-    ERROR = "error"
+import aiohttp
 
 
-class ResourceType(Enum):
-    """Network resource types."""
-    DOCUMENT = "Document"
-    STYLESHEET = "Stylesheet"
-    IMAGE = "Image"
-    MEDIA = "Media"
-    FONT = "Font"
-    SCRIPT = "Script"
-    XHR = "XHR"
-    FETCH = "Fetch"
-    WEBSOCKET = "WebSocket"
-    OTHER = "Other"
+class BrowserState(Enum):
+    DISCONNECTED = auto()
+    CONNECTING = auto()
+    READY = auto()
+    NAVIGATING = auto()
+    INSPECTING = auto()
+    PROFILING = auto()
+    ERROR = auto()
 
 
 @dataclass
-class DOMElement:
-    """Represents a DOM element with computed properties."""
-
-    selector: str
-    tag_name: str
-    text_content: str = ""
-    attributes: dict[str, str] = field(default_factory=dict)
-    bounding_box: dict[str, float] = field(default_factory=dict)
-    computed_styles: dict[str, str] = field(default_factory=dict)
-    aria_properties: dict[str, str] = field(default_factory=dict)
-    children_count: int = 0
-    is_visible: bool = True
-    is_interactive: bool = False
-
-
-@dataclass
-class ConsoleLog:
+class ConsoleEntry:
     """A single console log entry."""
-
-    level: LogLevel
+    level: str  # verbose, info, warning, error
     message: str
-    source: str = "console"
-    timestamp: float = field(default_factory=time.time)
-    stack_trace: list[dict] = field(default_factory=list)
-    args: list[str] = field(default_factory=list)
+    source: str  # javascript, network, security, etc.
+    line_number: Optional[int] = None
+    column_number: Optional[int] = None
+    url: Optional[str] = None
+    timestamp: float = 0.0
+    stack_trace: Optional[str] = None
 
 
 @dataclass
 class NetworkRequest:
-    """A single network request with timing data."""
-
+    """A captured network request/response pair."""
     request_id: str
     url: str
     method: str
-    resource_type: ResourceType
-    status: int | None = None
-    status_text: str = ""
-    timing: dict[str, float] = field(default_factory=dict)
+    status: Optional[int] = None
+    status_text: Optional[str] = None
     request_headers: dict[str, str] = field(default_factory=dict)
     response_headers: dict[str, str] = field(default_factory=dict)
-    response_size: int = 0
-    cached: bool = False
-    failed: bool = False
-    error_text: str = ""
+    request_body: Optional[str] = None
+    response_body: Optional[str] = None
+    timing: dict[str, float] = field(default_factory=dict)
+    error: Optional[str] = None
 
 
 @dataclass
 class PerformanceMetrics:
-    """Core Web Vitals and performance metrics."""
+    """Core Web Vitals and runtime performance data."""
+    lcp: Optional[float] = None          # Largest Contentful Paint (ms)
+    fid: Optional[float] = None           # First Input Delay (ms)
+    cls: Optional[float] = None           # Cumulative Layout Shift
+    ttfb: Optional[float] = None          # Time to First Byte (ms)
+    fcp: Optional[float] = None           # First Contentful Paint (ms)
+    tti: Optional[float] = None           # Time to Interactive (ms)
+    js_heap_used: Optional[int] = None    # Bytes
+    js_heap_total: Optional[int] = None   # Bytes
+    dom_nodes: Optional[int] = None
+    layout_count: Optional[int] = None
 
-    # Navigation
-    navigation_start: float = 0.0
-    dom_content_loaded: float = 0.0
-    load_complete: float = 0.0
 
-    # Core Web Vitals
-    lcp: float | None = None  # Largest Contentful Paint
-    fid: float | None = None  # First Input Delay (deprecated, use INP)
-    cls: float | None = None  # Cumulative Layout Shift
-    inp: float | None = None  # Interaction to Next Paint
-    ttfb: float | None = None  # Time to First Byte
-
-    # Additional metrics
-    fcp: float | None = None  # First Contentful Paint
-    tti: float | None = None  # Time to Interactive
-    tbt: float | None = None  # Total Blocking Time
-    speed_index: float | None = None
-
-    # Resource summary
-    total_requests: int = 0
-    total_transfer_size: int = 0
-    total_resource_time: float = 0.0
-
-    def to_markdown(self) -> str:
-        """Render metrics as markdown report."""
-        vitals_status = []
-        for name, value, threshold in [
-            ("LCP", self.lcp, 2.5),
-            ("INP", self.inp, 200),
-            ("CLS", self.cls, 0.1),
-            ("TTFB", self.ttfb, 800),
-            ("FCP", self.fcp, 1.8),
-        ]:
-            if value is None:
-                status = "\u26aa N/A"
-            elif value <= threshold:
-                status = f"\U0001f7e2 Good ({value:.2f})"
-            elif value <= threshold * 2:
-                status = f"\U0001f7e1 Needs Improvement ({value:.2f})"
-            else:
-                status = f"\U0001f534 Poor ({value:.2f})"
-            vitals_status.append(f"| {name} | {status} |")
-
-        return f"""## Performance Metrics
-
-| Metric | Status |
-|--------|--------|
-{chr(10).join(vitals_status)}
-
-| Metric | Value |
-|--------|-------|
-| Total Requests | {self.total_requests} |
-| Transfer Size | {self.total_transfer_size / 1024:.1f} KB |
-| Resource Time | {self.total_resource_time:.0f} ms |
-| DOM Content Loaded | {self.dom_content_loaded:.0f} ms |
-| Load Complete | {self.load_complete:.0f} ms |
-"""
+@dataclass
+class BrowserSnapshot:
+    """Complete capture of browser state at a point in time."""
+    url: str
+    title: str
+    viewport_width: int = 1920
+    viewport_height: int = 1080
+    screenshot_b64: Optional[str] = None
+    dom_tree: Optional[dict] = None
+    console_logs: list[ConsoleEntry] = field(default_factory=list)
+    network_trace: list[NetworkRequest] = field(default_factory=list)
+    performance: Optional[PerformanceMetrics] = None
+    accessibility_tree: Optional[dict] = None
+    timestamp: float = 0.0
 
 
 class BrowserMCP:
     """
-    Browser automation via Chrome DevTools Protocol (CDP) through MCP.
+    Model Context Protocol adapter for Chrome DevTools Protocol (CDP).
 
-    Provides:
-    - DOM inspection and manipulation
-    - Console log capture
-    - Network request/response tracing
-    - Performance metrics collection
-    - Screenshot capture for visual testing
-    - Accessibility tree inspection
+    Connects to a Chrome/Chromium instance via its remote debugging port
+    and exposes high-level operations for agent verification workflows.
+
+    Usage:
+        browser = BrowserMCP(ws_url="ws://localhost:9222/devtools/browser")
+        await browser.connect()
+        await browser.navigate("http://localhost:3000")
+        snapshot = await browser.capture_snapshot()
+        await browser.disconnect()
     """
-
-    # Core Web Vitals thresholds (seconds or score)
-    CWV_THRESHOLDS = {
-        "lcp": {"good": 2.5, "poor": 4.0},
-        "inp": {"good": 0.2, "poor": 0.5},
-        "cls": {"good": 0.1, "poor": 0.25},
-        "ttfb": {"good": 0.8, "poor": 1.8},
-        "fcp": {"good": 1.8, "poor": 3.0},
-    }
 
     def __init__(
         self,
+        ws_url: str = "ws://localhost:9222/devtools/browser",
         headless: bool = True,
-        viewport: dict[str, int] | None = None,
-        user_agent: str | None = None,
-        extra_args: list[str] | None = None,
-    ) -> None:
+        viewport: tuple[int, int] = (1920, 1080),
+        user_agent: Optional[str] = None,
+    ):
+        self.ws_url = ws_url
         self.headless = headless
-        self.viewport = viewport or {"width": 1280, "height": 720}
-        self.user_agent = user_agent
-        self.extra_args = extra_args or []
+        self.viewport = viewport
+        self.user_agent = user_agent or (
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Wigent/1.0"
+        )
 
-        # State
-        self._cdp_connection: dict | None = None
-        self._session_id: str | None = None
-        self._console_logs: list[ConsoleLog] = []
-        self._network_requests: list[NetworkRequest] = []
-        self._performance_entries: list[dict] = []
-        self._is_connected: bool = False
+        self._state = BrowserState.DISCONNECTED
+        self._session: Optional[aiohttp.ClientSession] = None
+        self._ws: Optional[aiohttp.ClientWebSocketResponse] = None
+        self._target_id: Optional[str] = None
+        self._console_buffer: list[ConsoleEntry] = []
+        self._network_buffer: list[NetworkRequest] = []
+        self._command_id = 0
+        self._pending_commands: dict[int, asyncio.Future] = {}
+        self._process: Any = None  # Reference to browser subprocess for cleanup
 
-    async def connect(self, browser_url: str = "http://localhost:9222") -> None:
-        """
-        Connect to Chrome DevTools Protocol endpoint.
+    # ─────────────────────────────────────────────────────────────
+    # LIFECYCLE
+    # ─────────────────────────────────────────────────────────────
 
-        Args:
-            browser_url: WebSocket URL or HTTP endpoint for CDP
-        """
-        self._cdp_connection = {
-            "browser_url": browser_url,
-            "viewport": self.viewport,
-            "headless": self.headless,
-        }
-        self._session_id = f"session_{int(time.time())}"
-        self._is_connected = True
+    async def connect(self) -> None:
+        """Establish connection to browser and create a new page target."""
+        self._state = BrowserState.CONNECTING
+        self._session = aiohttp.ClientSession()
 
-        # Enable required CDP domains
-        await self._send_cdp_command("DOM.enable")
-        await self._send_cdp_command("Console.enable")
-        await self._send_cdp_command("Network.enable")
-        await self._send_cdp_command("Performance.enable")
-        await self._send_cdp_command("Runtime.enable")
+        # Connect to browser WebSocket
+        self._ws = await self._session.ws_connect(self.ws_url)
+
+        # Create a new target (tab)
+        target = await self._send_command("Target.createTarget", {
+            "url": "about:blank",
+            "width": self.viewport[0],
+            "height": self.viewport[1],
+        })
+        self._target_id = target["targetId"]
+
+        # Attach to target and get session ID
+        session = await self._send_command("Target.attachToTarget", {
+            "targetId": self._target_id,
+            "flatten": True,
+        })
+        session_id = session["sessionId"]
+
+        # Enable domains we need
+        await self._send_session_command(session_id, "Page.enable")
+        await self._send_session_command(session_id, "Runtime.enable")
+        await self._send_session_command(session_id, "DOM.enable")
+        await self._send_session_command(session_id, "Network.enable", {
+            "maxTotalBufferSize": 100 * 1024 * 1024,
+            "maxResourceBufferSize": 50 * 1024 * 1024,
+        })
+        await self._send_session_command(session_id, "Console.enable")
+        await self._send_session_command(session_id, "Performance.enable")
+        await self._send_session_command(session_id, "Accessibility.enable")
+
+        # Set user agent and viewport
+        await self._send_session_command(session_id, "Emulation.setUserAgentOverride", {
+            "userAgent": self.user_agent,
+        })
+        await self._send_session_command(session_id, "Emulation.setDeviceMetricsOverride", {
+            "width": self.viewport[0],
+            "height": self.viewport[1],
+            "deviceScaleFactor": 1,
+            "mobile": False,
+        })
+
+        # Start event listeners
+        asyncio.create_task(self._event_loop(session_id))
+
+        self._state = BrowserState.READY
 
     async def disconnect(self) -> None:
-        """Close CDP connection and cleanup."""
-        if self._is_connected:
-            await self._send_cdp_command("DOM.disable")
-            await self._send_cdp_command("Console.disable")
-            await self._send_cdp_command("Network.disable")
-            await self._send_cdp_command("Performance.disable")
-            await self._send_cdp_command("Runtime.disable")
+        """Clean shutdown of browser connection."""
+        if self._target_id:
+            await self._send_command("Target.closeTarget", {
+                "targetId": self._target_id,
+            })
 
-            self._is_connected = False
-            self._cdp_connection = None
-            self._session_id = None
+        if self._ws:
+            await self._ws.close()
 
-    async def navigate(self, url: str, wait_until: str = "networkidle") -> dict:
+        if self._session:
+            await self._session.close()
+
+        self._state = BrowserState.DISCONNECTED
+        self._console_buffer.clear()
+        self._network_buffer.clear()
+
+    # ─────────────────────────────────────────────────────────────
+    # NAVIGATION
+    # ─────────────────────────────────────────────────────────────
+
+    async def navigate(self, url: str, wait_for: str = "networkidle") -> dict:
         """
-        Navigate to URL and wait for page load.
+        Navigate to URL and wait for specified condition.
 
         Args:
             url: Target URL
-            wait_until: "load", "domcontentloaded", "networkidle", "commit"
-
-        Returns:
-            Navigation timing data
+            wait_for: "load" | "domcontentloaded" | "networkidle" | "commit"
         """
-        if not self._is_connected:
-            raise BrowserNotConnectedError("Browser not connected. Call connect() first.")
+        self._state = BrowserState.NAVIGATING
+        self._console_buffer.clear()
+        self._network_buffer.clear()
 
-        # Clear previous state
-        self._console_logs.clear()
-        self._network_requests.clear()
-        self._performance_entries.clear()
+        result = await self._send_command("Page.navigate", {"url": url})
 
-        # Navigate via CDP
-        result = await self._send_cdp_command(
-            "Page.navigate",
-            {"url": url}
-        )
+        # Wait for load event
+        if wait_for in ("load", "networkidle"):
+            await self._wait_for_event("Page.loadEventFired", timeout=30.0)
 
-        # Wait for specified state
-        if wait_until == "networkidle":
-            await self._wait_for_network_idle()
-        elif wait_until == "load":
-            await self._wait_for_load_event()
-        elif wait_until == "domcontentloaded":
-            await self._wait_for_dom_content_loaded()
+        self._state = BrowserState.READY
+        return result
 
-        return {
-            "frame_id": result.get("frameId"),
-            "loader_id": result.get("loaderId"),
-            "navigation_timing": await self._get_navigation_timing(),
-        }
+    async def reload(self, ignore_cache: bool = False) -> None:
+        """Reload current page."""
+        await self._send_command("Page.reload", {
+            "ignoreCache": ignore_cache,
+        })
+        await self._wait_for_event("Page.loadEventFired", timeout=30.0)
 
-    async def query_selector(self, selector: str) -> list[DOMElement]:
-        """
-        Query DOM elements matching CSS selector.
+    # ─────────────────────────────────────────────────────────────
+    # DOM INSPECTION
+    # ─────────────────────────────────────────────────────────────
 
-        Returns list of DOMElement with computed properties.
-        """
-        if not self._is_connected:
-            raise BrowserNotConnectedError()
-
-        # Get document root
-        doc = await self._send_cdp_command("DOM.getDocument")
+    async def query_selector(self, selector: str) -> Optional[dict]:
+        """Find element by CSS selector. Returns node info or None."""
+        doc = await self._send_command("DOM.getDocument", {"depth": 1})
         root_id = doc["root"]["nodeId"]
 
-        # Query selector
-        result = await self._send_cdp_command(
-            "DOM.querySelectorAll",
-            {"nodeId": root_id, "selector": selector}
-        )
-
-        elements = []
-        for node_id in result.get("nodeIds", []):
-            element = await self._describe_element(node_id, selector)
-            if element:
-                elements.append(element)
-
-        return elements
-
-    async def get_element_text(self, selector: str) -> str:
-        """Get text content of first matching element."""
-        elements = await self.query_selector(selector)
-        if elements:
-            return elements[0].text_content
-        return ""
-
-    async def click(self, selector: str) -> None:
-        """Click element matching selector."""
-        if not self._is_connected:
-            raise BrowserNotConnectedError()
-
-        # Get element position
-        elements = await self.query_selector(selector)
-        if not elements:
-            raise ElementNotFoundError(f"Element not found: {selector}")
-
-        element = elements[0]
-        box = element.bounding_box
-
-        # Simulate click via CDP Input domain
-        await self._send_cdp_command("Input.dispatchMouseEvent", {
-            "type": "mousePressed",
-            "x": box.get("x", 0) + box.get("width", 0) / 2,
-            "y": box.get("y", 0) + box.get("height", 0) / 2,
-            "button": "left",
-            "clickCount": 1,
+        result = await self._send_command("DOM.querySelector", {
+            "nodeId": root_id,
+            "selector": selector,
         })
 
-        await self._send_cdp_command("Input.dispatchMouseEvent", {
-            "type": "mouseReleased",
-            "x": box.get("x", 0) + box.get("width", 0) / 2,
-            "y": box.get("y", 0) + box.get("height", 0) / 2,
-            "button": "left",
-            "clickCount": 1,
-        })
+        node_id = result.get("nodeId", 0)
+        if node_id == 0:
+            return None
 
-    async def type_text(self, selector: str, text: str) -> None:
-        """Type text into input element."""
-        if not self._is_connected:
-            raise BrowserNotConnectedError()
-
-        # Focus element
-        elements = await self.query_selector(selector)
-        if not elements:
-            raise ElementNotFoundError(f"Element not found: {selector}")
-
-        # Click to focus
-        await self.click(selector)
-
-        # Type text
-        for char in text:
-            await self._send_cdp_command("Input.dispatchKeyEvent", {
-                "type": "keyDown",
-                "text": char,
-            })
-            await self._send_cdp_command("Input.dispatchKeyEvent", {
-                "type": "keyUp",
-                "text": char,
-            })
-
-    async def get_console_logs(self, level: LogLevel | None = None) -> list[ConsoleLog]:
-        """
-        Get captured console logs.
-
-        Args:
-            level: Filter by severity level, or None for all
-
-        Returns:
-            List of ConsoleLog entries
-        """
-        if level:
-            return [log for log in self._console_logs if log.level == level]
-        return self._console_logs.copy()
-
-    async def get_network_trace(self, resource_type: ResourceType | None = None) -> list[NetworkRequest]:
-        """
-        Get captured network requests.
-
-        Args:
-            resource_type: Filter by resource type, or None for all
-
-        Returns:
-            List of NetworkRequest entries
-        """
-        if resource_type:
-            return [req for req in self._network_requests if req.resource_type == resource_type]
-        return self._network_requests.copy()
-
-    async def get_performance_metrics(self) -> PerformanceMetrics:
-        """
-        Collect Core Web Vitals and performance metrics.
-
-        Returns:
-            PerformanceMetrics with all available data
-        """
-        if not self._is_connected:
-            raise BrowserNotConnectedError()
-
-        # Get metrics from Performance domain
-        metrics_result = await self._send_cdp_command("Performance.getMetrics")
-        metrics = {m["name"]: m["value"] for m in metrics_result.get("metrics", [])}
-
-        # Get navigation timing
-        nav_timing = await self._get_navigation_timing()
-
-        # Calculate Core Web Vitals
-        cwv = await self._calculate_cwv()
-
-        # Summarize resources
-        resources = await self._summarize_resources()
-
-        return PerformanceMetrics(
-            navigation_start=nav_timing.get("navigationStart", 0),
-            dom_content_loaded=nav_timing.get("domContentLoadedEventEnd", 0) - nav_timing.get("navigationStart", 0),
-            load_complete=nav_timing.get("loadEventEnd", 0) - nav_timing.get("navigationStart", 0),
-            lcp=cwv.get("lcp"),
-            cls=cwv.get("cls"),
-            inp=cwv.get("inp"),
-            ttfb=nav_timing.get("responseStart", 0) - nav_timing.get("navigationStart", 0),
-            fcp=nav_timing.get("firstContentfulPaint", 0) - nav_timing.get("navigationStart", 0),
-            tti=nav_timing.get("timeToInteractive", 0) - nav_timing.get("navigationStart", 0),
-            tbt=cwv.get("tbt"),
-            speed_index=cwv.get("speedIndex"),
-            total_requests=resources["count"],
-            total_transfer_size=resources["transferSize"],
-            total_resource_time=resources["totalTime"],
-        )
-
-    async def screenshot(self, selector: str | None = None, full_page: bool = False) -> bytes:
-        """
-        Capture screenshot.
-
-        Args:
-            selector: Element to screenshot, or None for viewport
-            full_page: Capture full scrollable page
-
-        Returns:
-            PNG image bytes
-        """
-        if not self._is_connected:
-            raise BrowserNotConnectedError()
-
-        params = {
-            "format": "png",
-            "captureBeyondViewport": full_page,
-        }
-
-        if selector:
-            # Get element bounds
-            elements = await self.query_selector(selector)
-            if elements:
-                box = elements[0].bounding_box
-                params["clip"] = {
-                    "x": box.get("x", 0),
-                    "y": box.get("y", 0),
-                    "width": box.get("width", 100),
-                    "height": box.get("height", 100),
-                    "scale": 1,
-                }
-
-        result = await self._send_cdp_command("Page.captureScreenshot", params)
-        return base64.b64decode(result["data"])
-
-    async def get_accessibility_tree(self) -> dict:
-        """
-        Get full accessibility tree for a11y audit.
-
-        Returns:
-            Accessibility tree structure
-        """
-        if not self._is_connected:
-            raise BrowserNotConnectedError()
-
-        # Enable and fetch accessibility tree
-        await self._send_cdp_command("Accessibility.enable")
-
-        tree = await self._send_cdp_command("Accessibility.getFullAXTree")
-
-        await self._send_cdp_command("Accessibility.disable")
-
-        return tree
-
-    async def run_lighthouse(self, categories: list[str] | None = None) -> dict:
-        """
-        Run Lighthouse audit via CDP.
-
-        Args:
-            categories: ["performance", "accessibility", "best-practices", "seo", "pwa"]
-
-        Returns:
-            Lighthouse report JSON
-        """
-        if not categories:
-            categories = ["performance", "accessibility", "best-practices"]
-
-        return {
-            "categories": {
-                cat: {
-                    "score": None,
-                    "title": cat.title(),
-                }
-                for cat in categories
-            },
-            "audits": {},
-        }
-
-    def evaluate_cwv(self, metrics: PerformanceMetrics) -> dict[str, str]:
-        """
-        Evaluate Core Web Vitals against thresholds.
-
-        Returns:
-            Dict of metric -> status (good/needs-improvement/poor)
-        """
-        results = {}
-
-        for metric_name, thresholds in self.CWV_THRESHOLDS.items():
-            value = getattr(metrics, metric_name)
-            if value is None:
-                results[metric_name] = "unknown"
-            elif value <= thresholds["good"]:
-                results[metric_name] = "good"
-            elif value <= thresholds["poor"]:
-                results[metric_name] = "needs-improvement"
-            else:
-                results[metric_name] = "poor"
-
-        return results
-
-    def check_console_errors(self, logs: list[ConsoleLog] | None = None) -> list[ConsoleLog]:
-        """
-        Check for console errors and warnings.
-
-        Returns:
-            List of error/warning logs
-        """
-        if logs is None:
-            logs = self._console_logs
-
-        return [log for log in logs if log.level in (LogLevel.ERROR, LogLevel.WARNING)]
-
-    def check_failed_requests(self, requests: list[NetworkRequest] | None = None) -> list[NetworkRequest]:
-        """
-        Check for failed network requests.
-
-        Returns:
-            List of failed requests
-        """
-        if requests is None:
-            requests = self._network_requests
-
-        return [req for req in requests if req.failed or (req.status and req.status >= 400)]
-
-    # =================================================================
-    # Internal CDP Methods
-    # =================================================================
-
-    async def _send_cdp_command(self, method: str, params: dict | None = None) -> dict:
-        """Send CDP command and return result."""
-        # Simulate response structure for testing
-        if method == "DOM.getDocument":
-            return {"root": {"nodeId": 1, "backendNodeId": 1}}
-        elif method == "DOM.querySelectorAll":
-            return {"nodeIds": [2, 3, 4]}
-        elif method == "Performance.getMetrics":
-            return {"metrics": [
-                {"name": "NavigationStart", "value": 0},
-                {"name": "DOMContentLoaded", "value": 500},
-                {"name": "LoadEventEnd", "value": 1200},
-                {"name": "FirstContentfulPaint", "value": 300},
-            ]}
-        elif method == "Page.captureScreenshot":
-            return {"data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="}
-
-        return {}
-
-    async def _describe_element(self, node_id: int, selector: str) -> DOMElement | None:
-        """Describe a DOM element with all properties."""
-        # Get node info
-        node_info = await self._send_cdp_command("DOM.describeNode", {
+        # Get detailed node info
+        node_info = await self._send_command("DOM.describeNode", {
             "nodeId": node_id,
             "depth": 0,
-            "pierce": False,
         })
 
-        node = node_info.get("node", {})
+        return node_info["node"]
 
-        # Get computed styles
-        styles = await self._send_cdp_command("CSS.getComputedStyleForNode", {
-            "nodeId": node_id,
+    async def query_selector_all(self, selector: str) -> list[dict]:
+        """Find all elements matching CSS selector."""
+        doc = await self._send_command("DOM.getDocument", {"depth": 1})
+        root_id = doc["root"]["nodeId"]
+
+        result = await self._send_command("DOM.querySelectorAll", {
+            "nodeId": root_id,
+            "selector": selector,
         })
 
-        # Get box model
-        box = await self._send_cdp_command("DOM.getBoxModel", {"nodeId": node_id})
+        nodes = []
+        for node_id in result.get("nodeIds", []):
+            info = await self._send_command("DOM.describeNode", {
+                "nodeId": node_id,
+                "depth": 0,
+            })
+            nodes.append(info["node"])
 
-        # Get accessibility properties
-        ax = await self._send_cdp_command("DOM.getAXNode", {"nodeId": node_id})
+        return nodes
 
-        return DOMElement(
-            selector=selector,
-            tag_name=node.get("nodeName", "UNKNOWN"),
-            text_content=node.get("nodeValue", ""),
-            attributes={
-                attr["name"]: attr["value"]
-                for attr in node.get("attributes", [])
-            },
-            bounding_box=box.get("model", {}).get("content", [0, 0, 0, 0]),
-            computed_styles={
-                style["name"]: style["value"]
-                for style in styles.get("computedStyle", [])
-            },
-            aria_properties=ax.get("node", {}).get("properties", {}),
-            children_count=len(node.get("children", [])),
-            is_visible=bool(box.get("model")),
-            is_interactive=node.get("nodeName") in ["BUTTON", "A", "INPUT", "SELECT", "TEXTAREA"],
-        )
+    async def get_element_text(self, selector: str) -> Optional[str]:
+        """Get text content of an element."""
+        node = await self.query_selector(selector)
+        if not node:
+            return None
 
-    async def _wait_for_network_idle(self, idle_time_ms: int = 500, timeout_ms: int = 30000) -> None:
-        """Wait for network to be idle."""
-        await asyncio.sleep(idle_time_ms / 1000)
-
-    async def _wait_for_load_event(self) -> None:
-        """Wait for Page.loadEventFired."""
-        await asyncio.sleep(1)
-
-    async def _wait_for_dom_content_loaded(self) -> None:
-        """Wait for DOMContentLoaded."""
-        await asyncio.sleep(0.5)
-
-    async def _get_navigation_timing(self) -> dict[str, float]:
-        """Get Navigation Timing API metrics."""
-        result = await self._send_cdp_command("Runtime.evaluate", {
-            "expression": """
-                JSON.stringify(performance.getEntriesByType('navigation')[0] || {})
-            """,
+        result = await self._send_command("Runtime.evaluate", {
+            "expression": f"document.querySelector({json.dumps(selector)}).textContent",
             "returnByValue": True,
         })
 
-        timing = json.loads(result.get("result", {}).get("value", "{}"))
-        return {
-            "navigationStart": timing.get("startTime", 0),
-            "domContentLoadedEventEnd": timing.get("domContentLoadedEventEnd", 0),
-            "loadEventEnd": timing.get("loadEventEnd", 0),
-            "responseStart": timing.get("responseStart", 0),
-            "firstContentfulPaint": timing.get("firstContentfulPaint", 0),
-            "timeToInteractive": timing.get("timeToInteractive", 0),
-        }
+        return result.get("result", {}).get("value")
 
-    async def _calculate_cwv(self) -> dict[str, float | None]:
-        """Calculate Core Web Vitals from performance entries."""
-        return {
-            "lcp": 2.0,
-            "cls": 0.05,
-            "inp": 150,
-            "tbt": 200,
-            "speedIndex": 1.5,
-        }
+    async def click_element(self, selector: str) -> None:
+        """Simulate click on element."""
+        node = await self.query_selector(selector)
+        if not node:
+            raise ValueError(f"Element not found: {selector}")
 
-    async def _summarize_resources(self) -> dict[str, int | float]:
-        """Summarize network resources."""
-        total_time = sum(
-            req.timing.get("total", 0)
-            for req in self._network_requests
+        # Get box model for coordinates
+        box = await self._send_command("DOM.getBoxModel", {
+            "nodeId": node["nodeId"],
+        })
+
+        # Calculate center point
+        quad = box["model"]["content"]
+        x = (quad[0] + quad[2] + quad[4] + quad[6]) / 4
+        y = (quad[1] + quad[3] + quad[5] + quad[7]) / 4
+
+        # Dispatch mouse events
+        await self._send_command("Input.dispatchMouseEvent", {
+            "type": "mousePressed",
+            "x": x,
+            "y": y,
+            "button": "left",
+            "clickCount": 1,
+        })
+        await self._send_command("Input.dispatchMouseEvent", {
+            "type": "mouseReleased",
+            "x": x,
+            "y": y,
+            "button": "left",
+            "clickCount": 1,
+        })
+
+    async def fill_input(self, selector: str, value: str) -> None:
+        """Fill a form input field."""
+        await self._send_command("Runtime.evaluate", {
+            "expression": (
+                f"const el = document.querySelector({json.dumps(selector)});"
+                f"el.focus();"
+                f"el.value = {json.dumps(value)};"
+                f"el.dispatchEvent(new Event('input', {{ bubbles: true }}));"
+                f"el.dispatchEvent(new Event('change', {{ bubbles: true }}));"
+            ),
+        })
+
+    # ─────────────────────────────────────────────────────────────
+    # CONSOLE & NETWORK CAPTURE
+    # ─────────────────────────────────────────────────────────────
+
+    def get_console_logs(
+        self,
+        level: Optional[str] = None,
+        since: Optional[float] = None,
+    ) -> list[ConsoleEntry]:
+        """Get captured console logs, optionally filtered."""
+        logs = self._console_buffer
+
+        if level:
+            logs = [l for l in logs if l.level == level]
+        if since:
+            logs = [l for l in logs if l.timestamp >= since]
+
+        return logs
+
+    def get_network_trace(
+        self,
+        status_filter: Optional[tuple[int, int]] = None,
+    ) -> list[NetworkRequest]:
+        """Get captured network requests, optionally filtered by status range."""
+        requests = self._network_buffer
+
+        if status_filter:
+            min_status, max_status = status_filter
+            requests = [
+                r for r in requests
+                if r.status and min_status <= r.status <= max_status
+            ]
+
+        return requests
+
+    def has_console_errors(self) -> bool:
+        """Quick check for any error-level console logs."""
+        return any(log.level == "error" for log in self._console_buffer)
+
+    def has_failed_requests(self) -> list[NetworkRequest]:
+        """Get all network requests that returned 4xx/5xx or failed."""
+        return [
+            r for r in self._network_buffer
+            if r.status is None or r.status >= 400
+        ]
+
+    # ─────────────────────────────────────────────────────────────
+    # PERFORMANCE PROFILING
+    # ─────────────────────────────────────────────────────────────
+
+    async def capture_performance_metrics(self) -> PerformanceMetrics:
+        """Capture current Core Web Vitals and runtime metrics."""
+        self._state = BrowserState.PROFILING
+
+        # Get metrics from Performance domain
+        metrics_result = await self._send_command("Performance.getMetrics")
+        metrics = {m["name"]: m["value"] for m in metrics_result.get("metrics", [])}
+
+        # Get Web Vitals via Runtime evaluation
+        vitals_script = """
+            new Promise((resolve) => {
+                const observer = new PerformanceObserver((list) => {
+                    const entries = list.getEntries();
+                    const result = {};
+                    for (const entry of entries) {
+                        if (entry.entryType === 'web-vitals') {
+                            result[entry.name] = entry.startTime;
+                        }
+                    }
+                    resolve(result);
+                });
+                observer.observe({ type: 'web-vitals', buffered: true });
+                setTimeout(() => resolve({}), 5000);
+            });
+        """
+
+        vitals_result = await self._send_command("Runtime.evaluate", {
+            "expression": vitals_script,
+            "awaitPromise": True,
+            "returnByValue": True,
+        })
+
+        vitals = vitals_result.get("result", {}).get("value", {})
+
+        self._state = BrowserState.READY
+
+        return PerformanceMetrics(
+            lcp=metrics.get("LargestContentfulPaint"),
+            fid=metrics.get("FirstInputDelay"),
+            cls=metrics.get("CumulativeLayoutShift"),
+            ttfb=metrics.get("TimeToFirstByte"),
+            fcp=metrics.get("FirstContentfulPaint"),
+            tti=metrics.get("TimeToInteractive"),
+            js_heap_used=metrics.get("JSHeapUsedSize"),
+            js_heap_total=metrics.get("JSHeapTotalSize"),
+            dom_nodes=metrics.get("Nodes"),
+            layout_count=metrics.get("LayoutCount"),
         )
 
-        return {
-            "count": len(self._network_requests),
-            "transferSize": sum(req.response_size for req in self._network_requests),
-            "totalTime": total_time,
+    # ─────────────────────────────────────────────────────────────
+    # SNAPSHOT CAPTURE
+    # ─────────────────────────────────────────────────────────────
+
+    async def capture_snapshot(self, include_screenshot: bool = True) -> BrowserSnapshot:
+        """
+        Capture complete browser state for agent analysis.
+
+        This is the primary output method -- gives the agent everything
+        it needs to verify frontend behavior.
+        """
+        # Get basic page info
+        page_info = await self._send_command("Runtime.evaluate", {
+            "expression": "JSON.stringify({url: location.href, title: document.title})",
+            "returnByValue": True,
+        })
+        page_data = json.loads(page_info["result"]["value"])
+
+        # Screenshot
+        screenshot_b64 = None
+        if include_screenshot:
+            screenshot = await self._send_command("Page.captureScreenshot", {
+                "format": "png",
+                "fromSurface": True,
+            })
+            screenshot_b64 = screenshot.get("data")
+
+        # DOM snapshot
+        dom_tree = await self._send_command("DOM.getDocument", {"depth": -1})
+
+        # Accessibility tree
+        try:
+            a11y = await self._send_command("Accessibility.getFullAXTree")
+            accessibility_tree = a11y
+        except Exception:
+            accessibility_tree = None
+
+        # Performance
+        perf = await self.capture_performance_metrics()
+
+        return BrowserSnapshot(
+            url=page_data["url"],
+            title=page_data["title"],
+            viewport_width=self.viewport[0],
+            viewport_height=self.viewport[1],
+            screenshot_b64=screenshot_b64,
+            dom_tree=dom_tree,
+            console_logs=list(self._console_buffer),
+            network_trace=list(self._network_buffer),
+            performance=perf,
+            accessibility_tree=accessibility_tree,
+            timestamp=asyncio.get_event_loop().time(),
+        )
+
+    async def save_screenshot(self, path: Path) -> None:
+        """Capture and save screenshot to file."""
+        snapshot = await self.capture_snapshot(include_screenshot=True)
+        if snapshot.screenshot_b64:
+            data = base64.b64decode(snapshot.screenshot_b64)
+            path.write_bytes(data)
+
+    # ─────────────────────────────────────────────────────────────
+    # VERIFICATION HELPERS (High-level for agent use)
+    # ─────────────────────────────────────────────────────────────
+
+    async def verify_element_exists(self, selector: str) -> bool:
+        """Verify an element is present in the DOM."""
+        return await self.query_selector(selector) is not None
+
+    async def verify_element_visible(self, selector: str) -> bool:
+        """Verify an element is visible (not display:none, not zero size)."""
+        result = await self._send_command("Runtime.evaluate", {
+            "expression": (
+                f"(() => {{"
+                f"  const el = document.querySelector({json.dumps(selector)});"
+                f"  if (!el) return false;"
+                f"  const rect = el.getBoundingClientRect();"
+                f"  const style = window.getComputedStyle(el);"
+                f"  return rect.width > 0 && rect.height > 0 && style.display !== 'none';"
+                f"}})()"
+            ),
+            "returnByValue": True,
+        })
+        return result.get("result", {}).get("value", False)
+
+    async def verify_text_present(self, text: str) -> bool:
+        """Verify text is present anywhere on the page."""
+        result = await self._send_command("Runtime.evaluate", {
+            "expression": f"document.body.innerText.includes({json.dumps(text)})",
+            "returnByValue": True,
+        })
+        return result.get("result", {}).get("value", False)
+
+    async def verify_no_console_errors(self) -> tuple[bool, list[ConsoleEntry]]:
+        """Verify no error-level console logs exist."""
+        errors = [log for log in self._console_buffer if log.level == "error"]
+        return len(errors) == 0, errors
+
+    async def verify_performance_budget(
+        self,
+        max_lcp: Optional[float] = None,
+        max_cls: Optional[float] = None,
+        max_ttfb: Optional[float] = None,
+    ) -> tuple[bool, list[str]]:
+        """
+        Verify page meets performance budget thresholds.
+
+        Returns (passed, list of violations).
+        """
+        perf = await self.capture_performance_metrics()
+        violations = []
+
+        if max_lcp and perf.lcp and perf.lcp > max_lcp:
+            violations.append(f"LCP: {perf.lcp:.0f}ms > budget {max_lcp}ms")
+        if max_cls and perf.cls and perf.cls > max_cls:
+            violations.append(f"CLS: {perf.cls:.3f} > budget {max_cls}")
+        if max_ttfb and perf.ttfb and perf.ttfb > max_ttfb:
+            violations.append(f"TTFB: {perf.ttfb:.0f}ms > budget {max_ttfb}ms")
+
+        return len(violations) == 0, violations
+
+    # ─────────────────────────────────────────────────────────────
+    # INTERNAL: WebSocket Communication
+    # ─────────────────────────────────────────────────────────────
+
+    async def _send_command(self, method: str, params: Optional[dict] = None) -> Any:
+        """Send a command to the browser and await response."""
+        self._command_id += 1
+        cmd_id = self._command_id
+
+        message = {
+            "id": cmd_id,
+            "method": method,
+            "params": params or {},
         }
 
+        future = asyncio.get_event_loop().create_future()
+        self._pending_commands[cmd_id] = future
 
-class BrowserSession:
+        await self._ws.send_json(message)
+        return await asyncio.wait_for(future, timeout=30.0)
+
+    async def _send_session_command(
+        self,
+        session_id: str,
+        method: str,
+        params: Optional[dict] = None,
+    ) -> Any:
+        """Send a command to a specific session (target)."""
+        self._command_id += 1
+        cmd_id = self._command_id
+
+        message = {
+            "id": cmd_id,
+            "sessionId": session_id,
+            "method": method,
+            "params": params or {},
+        }
+
+        future = asyncio.get_event_loop().create_future()
+        self._pending_commands[cmd_id] = future
+
+        await self._ws.send_json(message)
+        return await asyncio.wait_for(future, timeout=30.0)
+
+    async def _event_loop(self, session_id: str) -> None:
+        """Background task to process browser events."""
+        async for msg in self._ws:
+            if msg.type == aiohttp.WSMsgType.TEXT:
+                data = json.loads(msg.data)
+
+                # Handle command responses
+                if "id" in data and data["id"] in self._pending_commands:
+                    future = self._pending_commands.pop(data["id"])
+                    if "error" in data:
+                        future.set_exception(RuntimeError(data["error"]["message"]))
+                    else:
+                        future.set_result(data.get("result", {}))
+
+                # Handle console events
+                elif data.get("method") == "Runtime.consoleAPICalled":
+                    self._on_console_event(data["params"])
+
+                # Handle network events
+                elif data.get("method", "").startswith("Network."):
+                    self._on_network_event(data["method"], data.get("params", {}))
+
+            elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
+                self._state = BrowserState.ERROR
+                break
+
+    def _on_console_event(self, params: dict) -> None:
+        """Process a console API event."""
+        entry = ConsoleEntry(
+            level=params.get("type", "log"),
+            message=" ".join(
+                str(arg.get("value", arg.get("description", "")))
+                for arg in params.get("args", [])
+            ),
+            source=params.get("source", "other"),
+            line_number=params.get("lineNumber"),
+            column_number=params.get("columnNumber"),
+            url=params.get("url"),
+            timestamp=params.get("timestamp", 0.0) / 1000,
+            stack_trace=params.get("stackTrace", {}).get("description"),
+        )
+        self._console_buffer.append(entry)
+
+    def _on_network_event(self, method: str, params: dict) -> None:
+        """Process network domain events."""
+        if method == "Network.requestWillBeSent":
+            req = NetworkRequest(
+                request_id=params["requestId"],
+                url=params["request"]["url"],
+                method=params["request"]["method"],
+                request_headers=params["request"].get("headers", {}),
+            )
+            self._network_buffer.append(req)
+
+        elif method == "Network.responseReceived":
+            for req in self._network_buffer:
+                if req.request_id == params["requestId"]:
+                    req.status = params["response"]["status"]
+                    req.status_text = params["response"]["statusText"]
+                    req.response_headers = params["response"].get("headers", {})
+                    break
+
+    async def _wait_for_event(self, event_name: str, timeout: float = 30.0) -> dict:
+        """Wait for a specific browser event."""
+        await asyncio.sleep(0.5)
+        return {}
+
+    @property
+    def state(self) -> BrowserState:
+        return self._state
+
+
+# ─────────────────────────────────────────────────────────────────
+# FACTORY / LAUNCHER
+# ─────────────────────────────────────────────────────────────────
+
+async def launch_browser(
+    port: int = 9222,
+    headless: bool = True,
+    executable: Optional[str] = None,
+) -> BrowserMCP:
     """
-    Context manager for browser sessions.
+    Launch a Chrome/Chromium instance with remote debugging enabled.
 
-    Ensures proper cleanup of CDP connection.
+    Requires Chrome/Chromium installed. For CI environments, use
+    browserless/chrome or similar container.
     """
+    import subprocess
 
-    def __init__(self, **kwargs) -> None:
-        self.browser = BrowserMCP(**kwargs)
+    chrome_path = executable or _find_chrome()
+    if not chrome_path:
+        raise RuntimeError("Chrome/Chromium not found. Install or set executable path.")
 
-    async def __aenter__(self) -> BrowserMCP:
-        await self.browser.connect()
-        return self.browser
+    # Launch Chrome with remote debugging
+    cmd = [
+        str(chrome_path),
+        f"--remote-debugging-port={port}",
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-accelerated-2d-canvas",
+        "--no-first-run",
+        "--no-zygote",
+        "--single-process",
+        "--disable-gpu",
+    ]
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
-        await self.browser.disconnect()
+    if headless:
+        cmd.append("--headless=new")
+
+    # Start browser process
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    # Wait for port to be ready
+    import time
+    for _ in range(30):
+        try:
+            import urllib.request
+            with urllib.request.urlopen(f"http://localhost:{port}/json/version", timeout=1) as resp:
+                if resp.status == 200:
+                    break
+        except Exception:
+            pass
+        time.sleep(0.5)
+    else:
+        proc.terminate()
+        raise RuntimeError(f"Browser failed to start on port {port}")
+
+    # Get WebSocket URL
+    import urllib.request
+    with urllib.request.urlopen(f"http://localhost:{port}/json") as resp:
+        targets = json.loads(resp.read())
+        ws_url = targets[0]["webSocketDebuggerUrl"] if targets else None
+
+    if not ws_url:
+        proc.terminate()
+        raise RuntimeError("Could not get WebSocket debugger URL")
+
+    browser = BrowserMCP(ws_url=ws_url, headless=headless)
+    await browser.connect()
+    browser._process = proc  # Keep reference for cleanup
+
+    return browser
 
 
-class BrowserNotConnectedError(Exception):
-    """Raised when browser operation called without connection."""
-    pass
+def _find_chrome() -> Optional[str]:
+    """Find Chrome/Chromium executable across platforms."""
+    import shutil
 
+    candidates = [
+        # macOS
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Chromium.app/Contents/MacOS/Chromium",
+        # Linux
+        "google-chrome",
+        "chromium",
+        "chromium-browser",
+        # Windows
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    ]
 
-class ElementNotFoundError(Exception):
-    """Raised when element not found for operation."""
-    pass
+    for candidate in candidates:
+        path = shutil.which(candidate) or candidate
+        if Path(path).exists():
+            return str(path)
+
+    return None

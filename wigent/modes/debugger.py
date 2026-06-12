@@ -35,7 +35,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from wigent.models.base_model import BaseModel
-    from wigent.tools.browser_mcp import BrowserMCP, ConsoleLog, NetworkRequest
+    from wigent.tools.browser_mcp import BrowserMCP, ConsoleEntry, NetworkRequest
 
 
 class TriageStatus(Enum):
@@ -267,12 +267,12 @@ class DebuggerMode:
             network_requests = await self.browser.get_network_trace()
 
             console_errors = [
-                {"message": log.message, "level": log.level.value}
+                {"message": log.message, "level": log.level}
                 for log in console_logs
-                if log.level.value in ("error", "warning")
+                if log.level in ("error", "warning")
             ]
             network_failures = [
-                {"url": req.url, "status": req.status, "error": req.error_text}
+                {"url": req.url, "status": req.status, "error": req.error}
                 for req in network_requests
                 if req.failed or (req.status and req.status >= 400)
             ]
@@ -333,9 +333,9 @@ class DebuggerMode:
 
             new_errors = [
                 log for log in post_console
-                if log.level.value in ("error", "warning")
+                if log.level in ("error", "warning")
                 and log not in [
-                    ConsoleLog(level=c.level, message=c.message)
+                    ConsoleEntry(level=c.level, message=c.message)
                     for c in console_logs
                 ]
             ]
@@ -566,7 +566,7 @@ Return JSON with: category, root_cause, fix_suggestion, confidence
         post_logs = await self.browser.get_console_logs()
         post_network = await self.browser.get_network_trace()
 
-        post_errors = [l for l in post_logs if l.level.value == "error"]
+        post_errors = [l for l in post_logs if l.level == "error"]
         post_failures = [r for r in post_network if r.failed or (r.status and r.status >= 400)]
 
         # Capture evidence
@@ -594,9 +594,9 @@ Return JSON with: category, root_cause, fix_suggestion, confidence
 
         return report
 
-    def verify_console_clean(self, logs: list[ConsoleLog]) -> bool:
+    def verify_console_clean(self, logs: list[ConsoleEntry]) -> bool:
         """Check that console has no errors or warnings."""
-        errors = [l for l in logs if l.level.value in ("error", "warning")]
+        errors = [l for l in logs if l.level in ("error", "warning")]
         return len(errors) == 0
 
     def verify_network_clean(self, requests: list[NetworkRequest]) -> bool:
